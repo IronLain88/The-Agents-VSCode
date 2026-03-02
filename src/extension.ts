@@ -35,6 +35,7 @@ function escapeHtml(unsafe: string): string {
 function getWebviewHtml(webview: vscode.Webview, mediaPath: string): string {
   const config = vscode.workspace.getConfiguration('agentVillage');
   const rawHubUrl = config.get<string>('hubUrl') || 'ws://localhost:4242';
+  const apiKey = config.get<string>('apiKey') || '';
 
   // Validate and sanitize hub URL
   let hubUrl: string, httpUrl: string;
@@ -85,6 +86,9 @@ function getWebviewHtml(webview: vscode.Webview, mediaPath: string): string {
   <style>${css}</style>
 </head>
 <body>
+  <nav class="top-nav">
+    <span id="auth-status" style="margin-left:auto;font-size:12px;cursor:pointer"></span>
+  </nav>
   <canvas id="village"></canvas>
   <div id="status" class="status disconnected">Connecting...</div>
   <script nonce="${nonce}">
@@ -94,7 +98,8 @@ function getWebviewHtml(webview: vscode.Webview, mediaPath: string): string {
       characterBase: "${escapeHtml(characterBase)}",
       animatedBase: "${escapeHtml(animatedBase)}",
       assetBase: "${escapeHtml(assetBase)}",
-      spriteBase: "${safeHubHttpUrl}/assets/sprites"
+      spriteBase: "${safeHubHttpUrl}/assets/sprites",
+      apiKey: "${escapeHtml(apiKey)}"
     };
 
     // VSCode webview API for settings

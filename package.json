@@ -47,6 +47,11 @@
           "type": "string",
           "default": "ws://localhost:4242",
           "description": "WebSocket URL of your The Agents hub server (e.g. ws://localhost:4242 or wss://your-server.com)"
+        },
+        "agentVillage.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key for your hub server (enables clearing agents and editing tasks)"
         }
       }
     }

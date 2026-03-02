@@ -65,12 +65,8 @@ body {
   border-radius: 4px;
   font-size: 11px;
   font-family: monospace;
-  cursor: pointer;
+  pointer-events: none;
   z-index: 10;
-}
-
-.status:hover {
-  filter: brightness(1.2);
 }
 
 .status.connected {
