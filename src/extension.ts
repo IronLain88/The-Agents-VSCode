@@ -11,7 +11,7 @@ let panel: vscode.WebviewPanel | undefined;
 function validateHubUrl(url: string): { ws: string; http: string } {
   const wsMatch = url.match(/^(wss?):\/\/([a-zA-Z0-9._-]+)(:\d+)?$/);
   if (!wsMatch) {
-    throw new Error('Hub URL must be a WebSocket URL (e.g. wss://the-agents.net or ws://localhost:4242)');
+    throw new Error('Hub URL must be a WebSocket URL (e.g. ws://localhost:4242 or ws://localhost:4242)');
   }
 
   const wsUrl = `${wsMatch[1]}://${wsMatch[2]}${wsMatch[3] || ''}`;

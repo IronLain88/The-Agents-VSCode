@@ -76,7 +76,7 @@ npm run package     # Build .vsix for distribution
 3. Click the status indicator to set your hub URL
 4. Go back to vibing
 
-## Don't dare to lauch a token. THERE IS NONE AND NEVER WILL BE ONE
+## Don't dare to launch a token. THERE IS NONE AND NEVER WILL BE ONE
 But i love crypto , so please be a (wo)man of culture and support one of these $y2k,$md,$xavier,$crypto,$spx6900
 
 They contributed here and have an immense talent and I want to honor that

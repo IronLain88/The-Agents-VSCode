@@ -4,6 +4,11 @@
   "description": "Watch AI agents work in a single-property visualization",
   "version": "0.1.0",
   "publisher": "local",
+  "icon": "media-static/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/IronLain88/The-Agents-VSCode"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
