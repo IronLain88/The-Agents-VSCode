@@ -20,8 +20,22 @@
       {
         "command": "agentVillage.openViewer",
         "title": "Open The Agents"
+      },
+      {
+        "command": "agentVillage.refresh",
+        "title": "Refresh The Agents",
+        "icon": "$(refresh)"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "agentVillage.refresh",
+          "when": "view == agentVillage.sidebarView",
+          "group": "navigation"
+        }
+      ]
+    },
     "viewsContainers": {
       "activitybar": [
         {
