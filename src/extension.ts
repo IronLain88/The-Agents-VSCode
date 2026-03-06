@@ -149,9 +149,13 @@ async function handleChangeHubUrl(webview: vscode.Webview, mediaPath: string) {
 }
 
 class VillageSidebarProvider implements vscode.WebviewViewProvider {
+  private _view?: vscode.WebviewView;
   constructor(private readonly extensionPath: string) {}
 
+  get view() { return this._view; }
+
   async resolveWebviewView(webviewView: vscode.WebviewView) {
+    this._view = webviewView;
     const mediaPath = path.join(this.extensionPath, 'media');
 
     webviewView.webview.options = {
@@ -164,6 +168,15 @@ class VillageSidebarProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(async (msg) => {
       if (msg.type === 'changeHubUrl') await handleChangeHubUrl(webviewView.webview, mediaPath);
     });
+
+    webviewView.onDidDispose(() => { this._view = undefined; });
+  }
+
+  refresh() {
+    if (this._view) {
+      const mediaPath = path.join(this.extensionPath, 'media');
+      this._view.webview.html = getWebviewHtml(this._view.webview, mediaPath);
+    }
   }
 }
 
@@ -172,6 +185,16 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('agentVillage.sidebarView', sidebarProvider, {
       webviewOptions: { retainContextWhenHidden: true }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('agentVillage.refresh', () => {
+      sidebarProvider.refresh();
+      if (panel) {
+        const mediaPath = path.join(context.extensionPath, 'media');
+        panel.webview.html = getWebviewHtml(panel.webview, mediaPath);
+      }
     })
   );
 
