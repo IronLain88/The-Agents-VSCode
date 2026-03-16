@@ -67,12 +67,12 @@ function getWebviewHtml(webview: vscode.Webview, mediaPath: string): string {
   const safeHubWsUrl = escapeHtml(hubUrl);
   const safeHubHttpUrl = escapeHtml(httpUrl);
 
-  // Restrictive CSP without unsafe-inline
+  // Restrictive CSP with nonce
   const csp = [
     "default-src 'none'",
     `img-src ${webview.cspSource} ${httpUrl}`,
     `script-src ${webview.cspSource} 'nonce-${nonce}'`,
-    "style-src 'unsafe-inline'", // Required for inline styles
+    "style-src 'unsafe-inline'",
     `connect-src ${hubUrl} ${httpUrl}`
   ].join('; ');
 
@@ -118,6 +118,7 @@ function getWebviewHtml(webview: vscode.Webview, mediaPath: string): string {
 
     await new Promise((resolve, reject) => {
       const s = document.createElement('script');
+      s.nonce = '${nonce}';
       s.src = '${viewerJsUri}';
       s.onload = resolve;
       s.onerror = reject;
