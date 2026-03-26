@@ -250,22 +250,35 @@ export function collectStations(propData) {
       pose: a.pose,
       facing: a.facing,
       approaches: a.approaches,
+      seat_filter: a.seat_filter,
     }));
   return [...stations, ...assetStations];
 }
 
 // Core station routing: find a station for an agent and return target position
 // Returns { x, y, facing, pose } or null if no matching station
-export function resolveStation(agentId, state, allStations, occupants, behavior, propOrigin) {
+export function resolveStation(agentId, state, allStations, occupants, behavior, propOrigin, agentName, agentPos) {
   // Clear this agent from all occupancy sets
   for (const [, occ] of occupants) occ.delete(agentId);
 
-  const matching = allStations.filter(s => s.state === state);
+  // Filter by state, then by seat_filter (if set, agent name must be in the list)
+  const matching = allStations
+    .filter(s => s.state === state)
+    .filter(s => !s.seat_filter?.length || s.seat_filter.includes(agentName));
   if (!matching.length) return null;
+
+  // Sort by distance to agent's current position (nearest first)
+  if (agentPos) {
+    matching.sort((a, b) => {
+      const da = (a.x * TILE_SIZE - agentPos.x) ** 2 + (a.y * TILE_SIZE - agentPos.y) ** 2;
+      const db = (b.x * TILE_SIZE - agentPos.x) ** 2 + (b.y * TILE_SIZE - agentPos.y) ** 2;
+      return da - db;
+    });
+  }
 
   let station, slotIndex = 0;
 
-  // Try to find a station with a free slot
+  // Try to find a station with a free slot (nearest first)
   for (const s of matching) {
     const key = `${s.x},${s.y}`;
     const occ = occupants.get(key);
@@ -277,7 +290,7 @@ export function resolveStation(agentId, state, allStations, occupants, behavior,
       break;
     }
   }
-  // Fall back to first matching station if all full
+  // Fall back to nearest matching station if all full
   if (!station) {
     station = matching[0];
     const key = `${station.x},${station.y}`;
