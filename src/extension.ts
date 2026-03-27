@@ -52,6 +52,7 @@ function getWebviewHtml(webview: vscode.Webview, mediaPath: string): string {
 
   const stationLogicUri = webview.asWebviewUri(vscode.Uri.file(path.join(mediaPath, 'viewer', 'station-logic.js')));
   const viewerJsUri = webview.asWebviewUri(vscode.Uri.file(path.join(mediaPath, 'viewer', 'viewer.js')));
+  const markedJsUri = webview.asWebviewUri(vscode.Uri.file(path.join(mediaPath, 'viewer', 'marked.min.js')));
 
   const characterBase = webview.asWebviewUri(vscode.Uri.file(path.join(mediaPath, 'assets', 'characters'))).toString();
   const animatedBase = webview.asWebviewUri(vscode.Uri.file(path.join(mediaPath, 'assets', 'animated'))).toString();
@@ -112,6 +113,7 @@ function getWebviewHtml(webview: vscode.Webview, mediaPath: string): string {
       }
     });
   </script>
+  <script src="${markedJsUri}" nonce="${nonce}"></script>
   <script type="module" nonce="${nonce}">
     import * as SL from '${stationLogicUri}';
     window.StationLogic = SL;

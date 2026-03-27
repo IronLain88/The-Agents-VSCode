@@ -1,5 +1,15 @@
 // Slim single-property viewer — no village map, no build mode
 const CONFIG = window.VILLAGE_CONFIG || {};
+
+function renderMarkdown(el, text) {
+  if (!text) { el.textContent = '(no content)'; return; }
+  if (typeof marked !== 'undefined') {
+    el.innerHTML = marked.parse(text);
+  } else {
+    el.style.whiteSpace = 'pre-wrap';
+    el.textContent = text;
+  }
+}
 const urlParams = new URLSearchParams(window.location.search);
 if (urlParams.get('apiKey')) CONFIG.apiKey = urlParams.get('apiKey');
 if (!CONFIG.apiKey) CONFIG.apiKey = localStorage.getItem("editor_api_key") || "";
@@ -572,6 +582,211 @@ function drawFloatingIcon(cx, topY, icon, count, badgeColor) {
     ctx.fillText(count > 99 ? '99+' : String(count), bx, by);
   }
   ctx.restore();
+}
+
+function showSign(asset) {
+  const title = '🪧 ' + (asset.name || 'Sign');
+  showModal(title, '', false, null, null, null, (box) => {
+    const contentEl = box.querySelector('.modal-content');
+    if (contentEl) contentEl.remove();
+
+    // Display text info
+    const textRow = document.createElement('div');
+    textRow.style.cssText = 'display:flex;gap:8px;font-size:12px;align-items:center;';
+    const textLabel = document.createElement('span');
+    textLabel.className = 'text-muted'; textLabel.textContent = 'Text:';
+    const textVal = document.createElement('span');
+    textVal.style.color = asset.floating_color || '#ffffff';
+    textVal.textContent = asset.floating_text || '—';
+    textRow.appendChild(textLabel); textRow.appendChild(textVal);
+    box.appendChild(textRow);
+
+    if (!CONFIG.apiKey) return;
+
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'Edit'; editBtn.className = 'btn btn-ghost'; editBtn.style.marginTop = '8px';
+
+    const editPanel = document.createElement('div');
+    editPanel.style.cssText = 'display:none;flex-direction:column;gap:6px;margin-top:8px;';
+
+    const textInp = document.createElement('input'); textInp.type = 'text';
+    textInp.value = asset.floating_text || ''; textInp.placeholder = 'Display text';
+    textInp.style.cssText = 'font-size:12px;padding:4px 6px;';
+
+    const colorRow = document.createElement('div');
+    colorRow.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:12px;';
+    const colorLabel = document.createElement('span'); colorLabel.className = 'text-muted'; colorLabel.textContent = 'Color';
+    const colorInp = document.createElement('input'); colorInp.type = 'color';
+    colorInp.value = asset.floating_color || '#ffffff';
+    colorRow.appendChild(colorLabel); colorRow.appendChild(colorInp);
+
+    const bobLabel = document.createElement('label');
+    bobLabel.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;';
+    const bobChk = document.createElement('input'); bobChk.type = 'checkbox';
+    bobChk.checked = asset.floating_bob !== false;
+    bobLabel.appendChild(bobChk); bobLabel.appendChild(document.createTextNode('Bob animation'));
+
+    const offsetRow = document.createElement('div');
+    offsetRow.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:11px;';
+    const oxWrap = document.createElement('label'); oxWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
+    oxWrap.textContent = 'X ';
+    const oxInp = document.createElement('input'); oxInp.type = 'number'; oxInp.value = asset.floating_ox || 0;
+    oxInp.style.cssText = 'width:50px;font-size:11px;padding:2px 4px;';
+    oxWrap.appendChild(oxInp);
+    const oyWrap = document.createElement('label'); oyWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
+    oyWrap.textContent = 'Y ';
+    const oyInp = document.createElement('input'); oyInp.type = 'number'; oyInp.value = asset.floating_oy || 0;
+    oyInp.style.cssText = 'width:50px;font-size:11px;padding:2px 4px;';
+    oyWrap.appendChild(oyInp);
+    offsetRow.appendChild(oxWrap); offsetRow.appendChild(oyWrap);
+
+    const saveBtn = document.createElement('button'); saveBtn.textContent = 'Save';
+    saveBtn.className = 'btn btn-accent';
+    saveBtn.onclick = async () => {
+      const text = textInp.value.trim();
+      const patch = {};
+      if (text) {
+        patch.floating_text = text; patch.floating_color = colorInp.value;
+        patch.floating_bob = bobChk.checked;
+        const ox = parseInt(oxInp.value) || 0; const oy = parseInt(oyInp.value) || 0;
+        if (ox) patch.floating_ox = ox; if (oy) patch.floating_oy = oy;
+      } else { patch.floating_text = null; }
+      try {
+        const res = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+          body: JSON.stringify(patch),
+        });
+        if (res.ok) {
+          if (text) {
+            asset.floating_text = text; asset.floating_color = colorInp.value;
+            asset.floating_bob = bobChk.checked;
+            asset.floating_ox = parseInt(oxInp.value) || 0; asset.floating_oy = parseInt(oyInp.value) || 0;
+          } else {
+            delete asset.floating_text; delete asset.floating_color;
+            delete asset.floating_bob; delete asset.floating_ox; delete asset.floating_oy;
+          }
+          textVal.textContent = asset.floating_text || '—';
+          textVal.style.color = asset.floating_color || '#ffffff';
+          saveBtn.textContent = '✓ Saved'; setTimeout(() => saveBtn.textContent = 'Save', 2000);
+        }
+      } catch {}
+    };
+
+    editPanel.appendChild(textInp); editPanel.appendChild(colorRow);
+    editPanel.appendChild(bobLabel); editPanel.appendChild(offsetRow); editPanel.appendChild(saveBtn);
+
+    editBtn.onclick = () => {
+      const show = editPanel.style.display === 'none';
+      editPanel.style.display = show ? 'flex' : 'none';
+      editBtn.textContent = show ? 'Cancel' : 'Edit';
+    };
+    box.appendChild(editBtn); box.appendChild(editPanel);
+  });
+}
+
+function appendFloatingTextUI(box, asset) {
+  if (!asset.floating_text && !CONFIG.apiKey) return;
+  const sep = document.createElement('div');
+  sep.style.cssText = 'border-top:1px solid rgba(255,255,255,0.08);margin:8px 0;';
+  box.appendChild(sep);
+
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;font-size:12px;align-items:center;';
+  const label = document.createElement('span');
+  label.className = 'text-muted'; label.style.flexShrink = '0'; label.textContent = 'Display Text:';
+  const val = document.createElement('span');
+  val.textContent = asset.floating_text || '—';
+  row.appendChild(label); row.appendChild(val);
+  box.appendChild(row);
+
+  if (!CONFIG.apiKey) return;
+
+  const editBtn = document.createElement('button');
+  editBtn.textContent = 'Edit Display Text'; editBtn.className = 'btn btn-ghost';
+  editBtn.style.marginTop = '4px';
+
+  const editPanel = document.createElement('div');
+  editPanel.style.cssText = 'display:none;flex-direction:column;gap:6px;margin-top:6px;';
+
+  const textInp = document.createElement('input'); textInp.type = 'text';
+  textInp.value = asset.floating_text || ''; textInp.placeholder = 'Display text (empty to remove)';
+  textInp.style.cssText = 'font-size:12px;padding:4px 6px;';
+
+  const colorRow = document.createElement('div');
+  colorRow.style.cssText = 'display:flex;gap:8px;align-items:center;';
+  const colorLabel = document.createElement('span'); colorLabel.className = 'text-muted'; colorLabel.textContent = 'Color';
+  const colorInp = document.createElement('input'); colorInp.type = 'color';
+  colorInp.value = asset.floating_color || '#ffffff';
+  colorRow.appendChild(colorLabel); colorRow.appendChild(colorInp);
+
+  const bobLabel = document.createElement('label');
+  bobLabel.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;';
+  const bobChk = document.createElement('input'); bobChk.type = 'checkbox';
+  bobChk.checked = asset.floating_bob !== false;
+  bobLabel.appendChild(bobChk); bobLabel.appendChild(document.createTextNode('Bob animation'));
+
+  const offsetRow = document.createElement('div');
+  offsetRow.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:11px;';
+  const oxLabel = document.createElement('label'); oxLabel.style.cssText = 'display:flex;align-items:center;gap:4px;';
+  oxLabel.textContent = 'X ';
+  const oxInp = document.createElement('input'); oxInp.type = 'number'; oxInp.value = asset.floating_ox || 0;
+  oxInp.style.cssText = 'width:50px;font-size:11px;padding:2px 4px;';
+  oxLabel.appendChild(oxInp);
+  const oyLabel = document.createElement('label'); oyLabel.style.cssText = 'display:flex;align-items:center;gap:4px;';
+  oyLabel.textContent = 'Y ';
+  const oyInp = document.createElement('input'); oyInp.type = 'number'; oyInp.value = asset.floating_oy || 0;
+  oyInp.style.cssText = 'width:50px;font-size:11px;padding:2px 4px;';
+  oyLabel.appendChild(oyInp);
+  offsetRow.appendChild(oxLabel); offsetRow.appendChild(oyLabel);
+
+  const saveBtn = document.createElement('button'); saveBtn.textContent = 'Save';
+  saveBtn.className = 'btn btn-accent';
+  saveBtn.onclick = async () => {
+    const text = textInp.value.trim();
+    const patch = {};
+    if (text) {
+      patch.floating_text = text;
+      patch.floating_color = colorInp.value;
+      patch.floating_bob = bobChk.checked;
+      const ox = parseInt(oxInp.value) || 0;
+      const oy = parseInt(oyInp.value) || 0;
+      if (ox) patch.floating_ox = ox;
+      if (oy) patch.floating_oy = oy;
+    } else {
+      patch.floating_text = null;
+    }
+    try {
+      const res = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...(CONFIG.apiKey ? { Authorization: `Bearer ${CONFIG.apiKey}` } : {}) },
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) {
+        if (text) {
+          asset.floating_text = text; asset.floating_color = colorInp.value;
+          asset.floating_bob = bobChk.checked;
+          asset.floating_ox = parseInt(oxInp.value) || 0;
+          asset.floating_oy = parseInt(oyInp.value) || 0;
+        } else {
+          delete asset.floating_text; delete asset.floating_color;
+          delete asset.floating_bob; delete asset.floating_ox; delete asset.floating_oy;
+        }
+        val.textContent = asset.floating_text || '—';
+        saveBtn.textContent = '✓ Saved'; setTimeout(() => saveBtn.textContent = 'Save', 2000);
+      }
+    } catch {}
+  };
+
+  editPanel.appendChild(textInp); editPanel.appendChild(colorRow);
+  editPanel.appendChild(bobLabel); editPanel.appendChild(offsetRow); editPanel.appendChild(saveBtn);
+
+  editBtn.onclick = () => {
+    const show = editPanel.style.display === 'none';
+    editPanel.style.display = show ? 'flex' : 'none';
+    editBtn.textContent = show ? 'Cancel' : 'Edit Display Text';
+  };
+
+  box.appendChild(editBtn); box.appendChild(editPanel);
 }
 
 function drawFloatingText(cx, topY, text, color, bob, ox, oy) {
@@ -1365,6 +1580,8 @@ function buildPropertySummary() {
   const tasks = [];
   const signals = [];
   const receptions = [];
+  const knowledge = [];
+  const downloads = [];
   let hasInbox = false;
 
   for (const a of assets) {
@@ -1377,7 +1594,11 @@ function buildPropertySummary() {
       signals.push({ name: a.station, trigger: a.trigger, interval: a.trigger_interval });
     } else if (a.station.startsWith('inbox')) {
       hasInbox = true;
-    } else if (!a.welcome && !a.archive && !a.logger) {
+    } else if (a.knowledge) {
+      knowledge.push(a.station);
+    } else if (a.download_folder) {
+      downloads.push({ name: a.station, folder: a.download_folder });
+    } else if (!a.welcome && !a.archive && !a.logger && !a.sign) {
       stations.push(a.station);
     }
   }
@@ -1388,7 +1609,7 @@ function buildPropertySummary() {
     activeAgents.push({ name: ag.agent_name, state: ag.state, detail: ag.detail });
   }
 
-  return { ownerName, stations, tasks, signals, receptions, hasInbox, activeAgents };
+  return { ownerName, stations, tasks, signals, receptions, knowledge, downloads, hasInbox, activeAgents };
 }
 
 function renderPropertySummary(container) {
@@ -1470,6 +1691,42 @@ function renderPropertySummary(container) {
     val.style.cssText = 'font-size:12px;padding:2px 0;';
     val.textContent = `  ${s.receptions.map(r => r.replace(/_/g, ' ')).join(', ')}`;
     sec.appendChild(val);
+    container.appendChild(sec);
+  }
+
+  // Knowledge containers
+  if (s.knowledge.length > 0) {
+    const sec = document.createElement('div');
+    sec.className = 'section-mb';
+    const label = document.createElement('div');
+    label.className = 'text-muted';
+    label.style.fontSize = '11px';
+    label.textContent = 'Knowledge containers — click to read setup guides and prompts:';
+    sec.appendChild(label);
+    for (const k of s.knowledge) {
+      const line = document.createElement('div');
+      line.style.cssText = 'font-size:12px;padding:2px 0;';
+      line.textContent = `  📖 ${k.replace(/_/g, ' ')}`;
+      sec.appendChild(line);
+    }
+    container.appendChild(sec);
+  }
+
+  // Downloads
+  if (s.downloads.length > 0) {
+    const sec = document.createElement('div');
+    sec.className = 'section-mb';
+    const label = document.createElement('div');
+    label.className = 'text-muted';
+    label.style.fontSize = '11px';
+    label.textContent = 'File cabinets — click to download files:';
+    sec.appendChild(label);
+    for (const d of s.downloads) {
+      const line = document.createElement('div');
+      line.style.cssText = 'font-size:12px;padding:2px 0;';
+      line.textContent = `  🗂 ${d.name.replace(/_/g, ' ')}`;
+      sec.appendChild(line);
+    }
     container.appendChild(sec);
   }
 
@@ -1667,6 +1924,8 @@ async function showWelcomeBoard(asset) {
     box.appendChild(btnRow);
   }
 
+  appendFloatingTextUI(box, asset);
+
   modal.appendChild(box);
   const openedAt = Date.now();
   modal.addEventListener('click', (e) => {
@@ -1730,12 +1989,13 @@ function showArchive(asset) {
         header.appendChild(headerRight);
         card.appendChild(header);
 
-        for (const entry of dto.trail) {
+        for (const entry of [...dto.trail].reverse()) {
           const line = document.createElement('div');
           line.style.cssText = 'border-left:2px solid rgba(240,216,136,0.3);padding-left:8px;margin-bottom:6px;';
           const label = document.createElement('div');
           label.style.cssText = 'color:#f0d888;font-weight:bold;font-size:10px;margin-bottom:3px;';
-          label.textContent = `${entry.station} (${entry.by})`;
+          const ts = entry.at ? new Date(entry.at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+          label.textContent = `${entry.station} (${entry.by})${ts ? ' · ' + ts : ''}`;
           line.appendChild(label);
           const text = document.createElement('div');
           text.style.cssText = 'font-size:12px;color:#ccc;word-break:break-word;';
@@ -1748,48 +2008,520 @@ function showArchive(asset) {
           card.appendChild(line);
         }
 
-        const targets = getTaskTargets().filter(t => t.station !== station);
-        if (targets.length > 0) {
-          const row = document.createElement('div');
-          row.style.cssText = 'display:flex;gap:4px;align-items:center;margin-top:6px;';
-          const select = buildTargetSelect(targets);
-          const fwdBtn = document.createElement('button');
-          fwdBtn.textContent = 'Forward';
-          fwdBtn.className = 'btn btn-accent';
-          fwdBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
-          fwdBtn.onclick = async () => {
-            if (!select.value) return;
-            const target = JSON.parse(select.value);
-            fwdBtn.disabled = true;
-            fwdBtn.textContent = 'Forwarding...';
-            try {
-              const h = { 'Content-Type': 'application/json' };
-              if (CONFIG.apiKey) h['Authorization'] = `Bearer ${CONFIG.apiKey}`;
-              const r = await fetch(`${HUB_HTTP_URL}/api/queue/${encodeURIComponent(station)}/${dto.id}/forward`, {
-                method: 'POST', headers: h,
-                body: JSON.stringify({ target_station: target.station, by: 'Viewer', data: dto.trail[0]?.data || '' }),
-              });
-              if (r.ok) {
-                card.style.opacity = '0.3';
-                card.style.transition = 'opacity 0.5s';
-                fwdBtn.textContent = 'Forwarded';
-              } else {
-                const err = await r.json().catch(() => ({}));
-                fwdBtn.textContent = err.error || 'Error';
-                fwdBtn.disabled = false;
-              }
-            } catch { fwdBtn.textContent = 'Failed'; fwdBtn.disabled = false; }
-          };
-          row.appendChild(select);
-          row.appendChild(fwdBtn);
-          card.appendChild(row);
-        }
+        buildDtoActions(card, dto, station, { targets: getTaskTargets().filter(t => t.station !== station) });
 
         list.appendChild(card);
       }
       box.insertBefore(list, box.querySelector('.inline-row'));
     } catch { if (contentEl) contentEl.textContent = 'Failed to load archive.'; }
   });
+}
+
+function showKnowledge(asset) {
+  const title = '📖 ' + (asset.name || asset.station || 'Knowledge');
+  showModal(title, '', true, null, null, null, async (box) => {
+    const contentEl = box.querySelector('.modal-content');
+    if (contentEl) contentEl.remove();
+
+    let state = { text: '', prompt: '', vars: {} };
+    try { if (asset.content?.data) state = { vars: {}, ...JSON.parse(asset.content.data) }; } catch {}
+
+    const isAuthed = !!CONFIG.apiKey;
+
+    function detectVars(text) {
+      const matches = [...(text || '').matchAll(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g)];
+      return [...new Set(matches.map(m => m[1]))].sort();
+    }
+
+    function applyVars(text, vars) {
+      return (text || '').replace(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g, (_, n) => vars[n] || `{{${n}}}`);
+    }
+
+    function resolvedPrompt() {
+      return applyVars(state.prompt, state.vars);
+    }
+
+    // --- Display panel ---
+    const displayPanel = document.createElement('div');
+    displayPanel.className = 'section-mb';
+
+    function makeRow(label, value) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;margin-bottom:3px;font-size:12px;';
+      const l = document.createElement('span');
+      l.className = 'text-muted';
+      l.style.flexShrink = '0';
+      l.textContent = label + ':';
+      const v = document.createElement('span');
+      v.textContent = value;
+      row.appendChild(l); row.appendChild(v);
+      return row;
+    }
+
+    // Info section
+    const varSummaryEl = document.createElement('div');
+    function refreshVarSummary() {
+      varSummaryEl.innerHTML = '';
+      const keys = [...new Set([...detectVars(state.prompt), ...Object.keys(state.vars || {})])].sort();
+      for (const k of keys) {
+        varSummaryEl.appendChild(makeRow(k, state.vars[k] || '—'));
+      }
+    }
+    refreshVarSummary();
+    displayPanel.appendChild(varSummaryEl);
+
+    // Prompt to copy
+    const copyRow = document.createElement('div');
+    copyRow.className = 'settings-row';
+    copyRow.style.cssText = 'margin-top:10px;align-items:flex-start;';
+    const promptCode = document.createElement('div');
+    promptCode.className = 'md-content';
+    promptCode.style.cssText = 'flex:1;word-break:break-word;font-size:12px;line-height:1.5;';
+    renderMarkdown(promptCode, resolvedPrompt());
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = 'Copy';
+    copyBtn.className = 'btn btn-accent';
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(resolvedPrompt() || '').then(() => {
+        copyBtn.textContent = '✓ Copied';
+        setTimeout(() => copyBtn.textContent = 'Copy', 2000);
+      });
+    };
+    copyRow.appendChild(promptCode);
+    copyRow.appendChild(copyBtn);
+    displayPanel.appendChild(copyRow);
+    box.appendChild(displayPanel);
+
+    if (!isAuthed) return;
+
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'Edit';
+    editBtn.className = 'btn btn-ghost';
+    editBtn.style.cssText = 'margin-top:6px;font-size:11px;padding:2px 8px;opacity:0.6;';
+    displayPanel.appendChild(editBtn);
+
+    // --- Edit panel ---
+    const editPanel = document.createElement('div');
+    editPanel.style.display = 'none';
+
+    const ptLabel = document.createElement('div');
+    ptLabel.className = 'text-muted';
+    ptLabel.style.cssText = 'font-size:11px;margin-top:8px;margin-bottom:3px;';
+    ptLabel.textContent = 'Agent prompt (use {{var1}}, {{name}}, … as placeholders)';
+    const promptTa = document.createElement('textarea');
+    promptTa.value = state.prompt;
+    promptTa.rows = 6;
+    promptTa.className = 'form-textarea';
+    promptTa.style.fontFamily = 'monospace';
+    editPanel.appendChild(ptLabel);
+    editPanel.appendChild(promptTa);
+
+    // Variables section — always visible
+    const varsHeader = document.createElement('div');
+    varsHeader.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:10px;margin-bottom:4px;';
+    const varsLabel = document.createElement('span');
+    varsLabel.className = 'text-muted';
+    varsLabel.style.cssText = 'font-size:11px;flex:1;';
+    varsLabel.textContent = 'Variables — reference as {{name}} in the prompt above';
+    const addVarBtn = document.createElement('button');
+    addVarBtn.textContent = '+ Add variable';
+    addVarBtn.className = 'btn btn-ghost';
+    addVarBtn.style.cssText = 'font-size:10px;padding:2px 6px;';
+    varsHeader.appendChild(varsLabel);
+    varsHeader.appendChild(addVarBtn);
+    editPanel.appendChild(varsHeader);
+
+    const varsContainer = document.createElement('div');
+    varsContainer.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+    editPanel.appendChild(varsContainer);
+
+    function makeVarRow(name, value) {
+      const row = document.createElement('div');
+      row.dataset.varRow = '1';
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+      const nameInp = document.createElement('input');
+      nameInp.type = 'text';
+      nameInp.className = 'form-input-sm var-name';
+      nameInp.style.cssText = 'width:90px;flex-shrink:0;font-family:monospace;font-size:11px;';
+      nameInp.placeholder = 'name';
+      nameInp.value = name;
+      nameInp.dataset.lastName = name;
+
+      const eq = document.createElement('span');
+      eq.className = 'text-muted';
+      eq.style.cssText = 'font-size:11px;flex-shrink:0;';
+      eq.textContent = '=';
+
+      const valInp = document.createElement('input');
+      valInp.type = 'text';
+      valInp.className = 'form-input-sm var-value';
+      valInp.style.flex = '1';
+      valInp.placeholder = 'value';
+      valInp.value = value;
+
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '×';
+      removeBtn.className = 'btn btn-ghost';
+      removeBtn.style.cssText = 'padding:1px 5px;font-size:13px;flex-shrink:0;';
+      removeBtn.onclick = () => row.remove();
+
+      // When name changes, rewrite [oldname] → [newname] in prompt
+      nameInp.addEventListener('change', () => {
+        const oldName = nameInp.dataset.lastName;
+        const newName = nameInp.value.trim();
+        if (oldName && newName && oldName !== newName) {
+          promptTa.value = promptTa.value.replace(
+            new RegExp(`\\{\\{${oldName}\\}\\}`, 'g'), `{{${newName}}}`
+          );
+        }
+        nameInp.dataset.lastName = newName;
+      });
+
+      row.appendChild(nameInp);
+      row.appendChild(eq);
+      row.appendChild(valInp);
+      row.appendChild(removeBtn);
+      return row;
+    }
+
+    function existingVarNames() {
+      return new Set([...varsContainer.querySelectorAll('.var-name')].map(n => n.value.trim()));
+    }
+
+    function refreshVarInputs() {
+      for (const k of detectVars(promptTa.value)) {
+        if (!existingVarNames().has(k)) varsContainer.appendChild(makeVarRow(k, state.vars[k] || ''));
+      }
+    }
+
+    addVarBtn.onclick = () => {
+      const existing = existingVarNames();
+      let n = 1;
+      while (existing.has('var' + n)) n++;
+      const row = makeVarRow('var' + n, '');
+      varsContainer.appendChild(row);
+      row.querySelector('.var-name').focus();
+    };
+
+    // Seed from saved state
+    for (const [k, v] of Object.entries(state.vars || {})) varsContainer.appendChild(makeVarRow(k, v));
+    refreshVarInputs();
+    promptTa.addEventListener('input', refreshVarInputs);
+
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = 'Save';
+    saveBtn.className = 'btn btn-primary';
+    saveBtn.style.marginTop = '8px';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.className = 'btn btn-ghost';
+    cancelBtn.style.cssText = 'margin-top:8px;margin-left:6px;';
+    editPanel.appendChild(document.createElement('br'));
+    editPanel.appendChild(saveBtn);
+    editPanel.appendChild(cancelBtn);
+
+    editBtn.onclick = () => { displayPanel.style.display = 'none'; editPanel.style.display = ''; promptTa.focus(); };
+    cancelBtn.onclick = () => { displayPanel.style.display = ''; editPanel.style.display = 'none'; };
+    saveBtn.onclick = async () => {
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+      state.prompt = promptTa.value.trim();
+      state.vars = {};
+      for (const row of varsContainer.querySelectorAll('[data-var-row]')) {
+        const name = row.querySelector('.var-name').value.trim();
+        const value = row.querySelector('.var-value').value.trim();
+        if (name) state.vars[name] = value;
+      }
+      try {
+        const res = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+          body: JSON.stringify({ content: { type: 'knowledge', data: JSON.stringify(state) } }),
+        });
+        if (res.ok) {
+          asset.content = { type: 'knowledge', data: JSON.stringify(state) };
+          renderMarkdown(promptCode, resolvedPrompt());
+          refreshVarSummary();
+          displayPanel.style.display = '';
+          editPanel.style.display = 'none';
+        } else { saveBtn.textContent = 'Failed'; }
+      } catch { saveBtn.textContent = 'Failed'; }
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save';
+    };
+
+    box.appendChild(editPanel);
+  });
+}
+
+function showDownloads(asset) {
+  const title = '📦 ' + (asset.name || asset.station || asset.download_folder || 'Downloads');
+  showModal(title, 'Loading...', true, null, null, null, async (box) => {
+    const contentEl = box.querySelector('.modal-content');
+
+    // Folder display row + edit (auth only)
+    if (contentEl) contentEl.remove();
+
+    const folderRow = document.createElement('div');
+    folderRow.className = 'settings-row';
+    folderRow.style.marginBottom = '10px';
+
+    const folderLabel = document.createElement('span');
+    folderLabel.className = 'text-label';
+    folderLabel.textContent = 'Folder:';
+
+    const folderVal = document.createElement('span');
+    folderVal.className = 'text-muted';
+    folderVal.style.fontFamily = 'monospace';
+    folderVal.textContent = asset.download_folder;
+
+    folderRow.appendChild(folderLabel);
+    folderRow.appendChild(folderVal);
+
+    if (CONFIG.apiKey) {
+      const editBtn = document.createElement('button');
+      editBtn.textContent = 'Edit';
+      editBtn.className = 'btn btn-accent';
+      editBtn.style.cssText = 'margin-left:auto;font-size:11px;padding:2px 8px;';
+
+      const editPanel = document.createElement('div');
+      editPanel.style.cssText = 'display:none;margin-top:8px;';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = asset.download_folder;
+      input.className = 'form-input-sm';
+      input.style.cssText = 'width:100%;font-family:monospace;margin-bottom:6px;';
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:6px;';
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = 'Save';
+      saveBtn.className = 'btn btn-accent';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.className = 'btn';
+      btnRow.appendChild(saveBtn);
+      btnRow.appendChild(cancelBtn);
+      editPanel.appendChild(input);
+      editPanel.appendChild(btnRow);
+
+      editBtn.onclick = () => { editPanel.style.display = ''; editBtn.style.display = 'none'; };
+      cancelBtn.onclick = () => { editPanel.style.display = 'none'; editBtn.style.display = ''; };
+      saveBtn.onclick = async () => {
+        const newFolder = input.value.trim();
+        if (!newFolder || !/^[a-zA-Z0-9_-]+$/.test(newFolder)) {
+          saveBtn.textContent = 'Invalid name';
+          setTimeout(() => saveBtn.textContent = 'Save', 2000);
+          return;
+        }
+        saveBtn.disabled = true;
+        try {
+          const r = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+            body: JSON.stringify({ download_folder: newFolder }),
+          });
+          if (r.ok) {
+            asset.download_folder = newFolder;
+            folderVal.textContent = newFolder;
+            editPanel.style.display = 'none';
+            editBtn.style.display = '';
+            loadFiles();
+          } else { saveBtn.textContent = 'Failed'; }
+        } catch { saveBtn.textContent = 'Failed'; }
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      };
+
+      folderRow.appendChild(editBtn);
+      box.appendChild(folderRow);
+      box.appendChild(editPanel);
+    } else {
+      box.appendChild(folderRow);
+    }
+
+    const listContainer = document.createElement('div');
+    box.appendChild(listContainer);
+
+    async function loadFiles() {
+      listContainer.innerHTML = '';
+      try {
+        const res = await fetch(`${HUB_HTTP_URL}/api/downloads/${encodeURIComponent(asset.download_folder)}`);
+        if (!res.ok) { listContainer.textContent = 'Folder not found.'; return; }
+        const { files } = await res.json();
+
+        if (!files || files.length === 0) {
+          const empty = document.createElement('div');
+          empty.style.cssText = 'color:#aaa;font-size:13px;padding:8px 0;';
+          empty.textContent = 'No files available for download.';
+          listContainer.appendChild(empty);
+          return;
+        }
+
+        const list = document.createElement('div');
+        list.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+        for (const file of files) {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 12px;background:rgba(0,0,0,0.2);gap:12px;';
+          const nameEl = document.createElement('span');
+          nameEl.style.cssText = 'font-size:13px;color:#e0d8c0;word-break:break-all;';
+          nameEl.textContent = file.name;
+          const right = document.createElement('div');
+          right.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0;';
+          if (file.size != null) {
+            const sizeEl = document.createElement('span');
+            sizeEl.style.cssText = 'font-size:11px;color:#888;';
+            sizeEl.textContent = file.size < 1024 ? `${file.size} B`
+              : file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB`
+              : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+            right.appendChild(sizeEl);
+          }
+          const a = document.createElement('a');
+          a.href = `${HUB_HTTP_URL}/api/downloads/${encodeURIComponent(asset.download_folder)}/${encodeURIComponent(file.name)}`;
+          a.download = file.name;
+          a.textContent = '⬇ Download';
+          a.className = 'btn btn-accent';
+          a.style.cssText = 'text-decoration:none;font-size:12px;padding:4px 10px;';
+          right.appendChild(a);
+          row.appendChild(nameEl);
+          row.appendChild(right);
+          list.appendChild(row);
+        }
+        listContainer.appendChild(list);
+      } catch { listContainer.textContent = 'Failed to load downloads.'; }
+    }
+
+    loadFiles();
+  });
+}
+
+function buildDtoActions(card, dto, station, { targets = [], showRunAgain = false } = {}) {
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:4px;align-items:center;margin-top:6px;flex-wrap:wrap;';
+
+  // Add note button
+  const noteBtn = document.createElement('button');
+  noteBtn.textContent = '\ud83d\udcac Note';
+  noteBtn.className = 'btn btn-accent';
+  noteBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
+  const noteWrap = document.createElement('div');
+  noteWrap.style.cssText = 'display:none;width:100%;margin-top:4px;';
+  const noteInput = document.createElement('input');
+  noteInput.type = 'text';
+  noteInput.placeholder = 'Add a note...';
+  noteInput.className = 'form-input';
+  noteInput.style.cssText = 'font-size:11px;flex:1;';
+  const noteSend = document.createElement('button');
+  noteSend.textContent = 'Add';
+  noteSend.className = 'btn btn-primary';
+  noteSend.style.cssText = 'font-size:11px;padding:2px 8px;';
+  noteWrap.style.display = 'none';
+  const noteRow = document.createElement('div');
+  noteRow.style.cssText = 'display:flex;gap:4px;width:100%;';
+  noteRow.appendChild(noteInput);
+  noteRow.appendChild(noteSend);
+  noteWrap.appendChild(noteRow);
+
+  noteBtn.onclick = () => {
+    const open = noteWrap.style.display !== 'none';
+    noteWrap.style.display = open ? 'none' : 'block';
+    if (!open) noteInput.focus();
+  };
+  noteSend.onclick = async () => {
+    const text = noteInput.value.trim();
+    if (!text) return;
+    noteSend.disabled = true;
+    try {
+      const headers = { 'Content-Type': 'application/json' };
+      if (CONFIG.apiKey) headers['Authorization'] = `Bearer ${CONFIG.apiKey}`;
+      const res = await fetch(`${HUB_HTTP_URL}/api/queue/${encodeURIComponent(station)}/${dto.id}/forward`, {
+        method: 'POST', headers,
+        body: JSON.stringify({ target_station: station, by: 'Viewer', data: text }),
+      });
+      if (res.ok) {
+        noteInput.value = '';
+        noteWrap.style.display = 'none';
+        // Append trail entry visually
+        const line = document.createElement('div');
+        line.style.cssText = 'border-left:2px solid rgba(136,192,240,0.3);padding-left:8px;margin-bottom:6px;';
+        const label = document.createElement('div');
+        label.style.cssText = 'color:#88c0f0;font-weight:bold;font-size:10px;margin-bottom:3px;';
+        label.textContent = `${station} (Viewer)`;
+        line.appendChild(label);
+        const t = document.createElement('div');
+        t.style.cssText = 'font-size:12px;color:#ccc;word-break:break-word;';
+        t.textContent = text;
+        line.appendChild(t);
+        row.before(line);
+      }
+    } catch { /* ignore */ }
+    noteSend.disabled = false;
+  };
+  noteInput.onkeydown = (e) => { if (e.key === 'Enter') noteSend.click(); };
+  row.appendChild(noteBtn);
+
+  // Run again button
+  if (showRunAgain) {
+    const runBtn = document.createElement('button');
+    runBtn.textContent = '\u25b6 Run again';
+    runBtn.className = 'btn btn-accent';
+    runBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
+    runBtn.onclick = async () => {
+      runBtn.disabled = true;
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (CONFIG.apiKey) headers['Authorization'] = `Bearer ${CONFIG.apiKey}`;
+        const res = await fetch(`${HUB_HTTP_URL}/api/task/${encodeURIComponent(station)}/rerun/${encodeURIComponent(dto.id)}`, {
+          method: 'POST', headers,
+        });
+        if (res.ok) {
+          runBtn.textContent = '\u2713 Triggered';
+          setTimeout(() => { runBtn.textContent = '\u25b6 Run again'; runBtn.disabled = false; }, 2000);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          runBtn.textContent = err.error || 'Error';
+          setTimeout(() => { runBtn.textContent = '\u25b6 Run again'; runBtn.disabled = false; }, 2000);
+        }
+      } catch { runBtn.textContent = 'Failed'; runBtn.disabled = false; }
+    };
+    row.appendChild(runBtn);
+  }
+
+  // Forward
+  if (targets.length > 0) {
+    const fwdSelect = buildTargetSelect(targets);
+    const fwdBtn = document.createElement('button');
+    fwdBtn.textContent = '\u2192 Forward';
+    fwdBtn.className = 'btn btn-accent';
+    fwdBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
+    fwdBtn.onclick = async () => {
+      if (!fwdSelect.value) return;
+      const target = JSON.parse(fwdSelect.value);
+      fwdBtn.disabled = true;
+      fwdBtn.textContent = 'Forwarding...';
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (CONFIG.apiKey) headers['Authorization'] = `Bearer ${CONFIG.apiKey}`;
+        const res = await fetch(`${HUB_HTTP_URL}/api/queue/${encodeURIComponent(station)}/${dto.id}/forward`, {
+          method: 'POST', headers,
+          body: JSON.stringify({ target_station: target.station, by: 'Viewer', data: dto.trail[0]?.data || '' }),
+        });
+        if (res.ok) {
+          card.style.opacity = '0.3';
+          card.style.transition = 'opacity 0.5s';
+          fwdBtn.textContent = 'Forwarded';
+        } else {
+          const err = await res.json().catch(() => ({}));
+          fwdBtn.textContent = err.error || 'Error';
+          fwdBtn.disabled = false;
+        }
+      } catch { fwdBtn.textContent = 'Failed'; fwdBtn.disabled = false; }
+    };
+    row.appendChild(fwdSelect);
+    row.appendChild(fwdBtn);
+  }
+
+  card.appendChild(row);
+  card.appendChild(noteWrap);
 }
 
 function renderDtoCard(dto, list, fromStation, targets) {
@@ -1832,41 +2564,7 @@ function renderDtoCard(dto, list, fromStation, targets) {
   body.textContent = first.data || '(empty)';
   card.appendChild(body);
 
-  if (targets.length > 0) {
-    const row = document.createElement('div');
-    row.style.cssText = 'display:flex;gap:4px;align-items:center;';
-    const select = buildTargetSelect(targets);
-    const fwdBtn = document.createElement('button');
-    fwdBtn.textContent = 'Forward';
-    fwdBtn.className = 'btn btn-accent';
-    fwdBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
-    fwdBtn.onclick = async () => {
-      if (!select.value) return;
-      const target = JSON.parse(select.value);
-      fwdBtn.disabled = true;
-      fwdBtn.textContent = 'Forwarding...';
-      try {
-        const headers = { 'Content-Type': 'application/json' };
-        if (CONFIG.apiKey) headers['Authorization'] = `Bearer ${CONFIG.apiKey}`;
-        const res = await fetch(`${HUB_HTTP_URL}/api/queue/${encodeURIComponent(fromStation)}/${dto.id}/forward`, {
-          method: 'POST', headers,
-          body: JSON.stringify({ target_station: target.station, by: 'Viewer', data: first.data || '' }),
-        });
-        if (res.ok) {
-          card.style.opacity = '0.3';
-          card.style.transition = 'opacity 0.5s';
-          fwdBtn.textContent = 'Forwarded';
-        } else {
-          const err = await res.json().catch(() => ({}));
-          fwdBtn.textContent = err.error || 'Error';
-          fwdBtn.disabled = false;
-        }
-      } catch { fwdBtn.textContent = 'Failed'; fwdBtn.disabled = false; }
-    };
-    row.appendChild(select);
-    row.appendChild(fwdBtn);
-    card.appendChild(row);
-  }
+  buildDtoActions(card, dto, fromStation, { targets });
 
   list.appendChild(card);
 }
@@ -1933,6 +2631,8 @@ async function showInboxMessages(asset) {
   form.appendChild(input);
   form.appendChild(addBtn);
   box.appendChild(form);
+
+  buildAccessControl(asset, box);
 
   modal.appendChild(box);
   const openedAt = Date.now();
@@ -2166,6 +2866,7 @@ function showReception(asset) {
   }
 
   buildSeatFilter(asset, box);
+  buildAccessControl(asset, box);
 
   modal.appendChild(box);
   const openedAt = Date.now();
@@ -2186,207 +2887,279 @@ function showTask(asset) {
   const station = asset.station;
   openTaskStation = station;
 
-  // Agent presence
   const here = [];
   if (asset.position) {
     const key = `${asset.position.x},${asset.position.y}`;
     const occupantIds = stationOccupants.get(key);
-    if (occupantIds) {
-      for (const id of occupantIds) {
-        const agent = agents.get(id);
-        if (agent) here.push(agent);
-      }
-    }
+    if (occupantIds) for (const id of occupantIds) { const a = agents.get(id); if (a) here.push(a); }
   }
 
   let state = { status: 'idle', result: null };
-  try {
-    if (asset.content?.data) state = JSON.parse(typeof asset.content.data === 'string' ? asset.content.data : JSON.stringify(asset.content.data));
-  } catch {}
+  try { if (asset.content?.data) state = JSON.parse(typeof asset.content.data === 'string' ? asset.content.data : JSON.stringify(asset.content.data)); } catch {}
 
   const isOpen = here.length > 0;
   const agentNames = here.map(a => a.agent_name || a.agent_id).join(', ');
+  const isAuthed = !!CONFIG.apiKey;
 
   const existing = document.getElementById('station-modal');
   if (existing) existing.remove();
-
   const modal = document.createElement('div');
-  modal.id = 'station-modal';
-  modal.className = 'modal-backdrop';
-
+  modal.id = 'station-modal'; modal.className = 'modal-backdrop';
   const box = document.createElement('div');
   box.className = 'modal-box scrollable';
+  const titleEl = document.createElement('div');
+  titleEl.className = 'modal-title';
+  titleEl.textContent = `${asset.openclaw_task ? '\ud83e\udd16' : '\u2699'} ${station.replace(/_/g, ' ')}`;
+  box.appendChild(titleEl);
 
-  const title = document.createElement('div');
-  title.className = 'modal-title';
-  title.textContent = `${asset.openclaw_task ? '\ud83e\udd16' : '\u2699'} ${station.replace(/_/g, ' ')}`;
-  box.appendChild(title);
+  function makeRow(label, value) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:8px;margin-bottom:3px;font-size:12px;';
+    const l = document.createElement('span'); l.className = 'text-muted'; l.style.flexShrink = '0'; l.textContent = label + ':';
+    const v = document.createElement('span'); v.textContent = value;
+    row.appendChild(l); row.appendChild(v); return row;
+  }
 
-  const isAuthed = !!CONFIG.apiKey;
+  function makeVarRow(name, value, promptTa) {
+    const row = document.createElement('div');
+    row.dataset.varRow = '1'; row.style.cssText = 'display:flex;align-items:center;gap:6px;';
+    const nameInp = document.createElement('input');
+    nameInp.type = 'text'; nameInp.className = 'form-input-sm var-name';
+    nameInp.style.cssText = 'width:90px;flex-shrink:0;font-family:monospace;font-size:11px;';
+    nameInp.placeholder = 'name'; nameInp.value = name; nameInp.dataset.lastName = name;
+    const eq = document.createElement('span');
+    eq.className = 'text-muted'; eq.style.cssText = 'font-size:11px;flex-shrink:0;'; eq.textContent = '=';
+    const valInp = document.createElement('input');
+    valInp.type = 'text'; valInp.className = 'form-input-sm var-value';
+    valInp.style.flex = '1'; valInp.placeholder = 'value'; valInp.value = value;
+    const removeBtn = document.createElement('button');
+    removeBtn.textContent = '×'; removeBtn.className = 'btn btn-ghost';
+    removeBtn.style.cssText = 'padding:1px 5px;font-size:13px;flex-shrink:0;';
+    removeBtn.onclick = () => row.remove();
+    nameInp.addEventListener('change', () => {
+      const oldName = nameInp.dataset.lastName; const newName = nameInp.value.trim();
+      if (oldName && newName && oldName !== newName)
+        promptTa.value = promptTa.value.replace(new RegExp(`\\{\\{${oldName}\\}\\}`, 'g'), `{{${newName}}}`);
+      nameInp.dataset.lastName = newName;
+    });
+    row.appendChild(nameInp); row.appendChild(eq); row.appendChild(valInp); row.appendChild(removeBtn);
+    return row;
+  }
 
-  // Task instructions — editable for authed users
-  if (asset.instructions || isAuthed) {
-    const descWrap = document.createElement('div');
-    descWrap.className = 'section-mb';
+  const defaultPrompt = `Subscribe to "${station}" and loop: check_events() → when a task arrives, {{task}}, say() a brief comment, answer_task with the result → check_events() again. If you receive a signal with action "release", stop the loop and return to idle.`;
 
-    const desc = document.createElement('div');
-    desc.className = 'text-info';
-    desc.textContent = asset.instructions || '(no instructions)';
-    descWrap.appendChild(desc);
+  // --- Prompt section (non-openclaw only) ---
+  if (!asset.openclaw_task) {
+    const promptState = { prompt: asset.prompt_template || defaultPrompt, vars: asset.prompt_vars || {} };
+
+    function detectVars(text) {
+      const matches = [...(text || '').matchAll(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g)];
+      return [...new Set(matches.map(m => m[1]))].sort();
+    }
+    function applyVars(text, vars) {
+      return (text || '').replace(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g, (_, n) => vars[n] || `{{${n}}}`);
+    }
+    function resolvedPrompt() { return applyVars(promptState.prompt, promptState.vars); }
+
+    const copyRow = document.createElement('div');
+    copyRow.className = 'settings-row'; copyRow.style.cssText = 'margin-top:10px;align-items:flex-start;';
+    const promptCode = document.createElement('div');
+    promptCode.className = 'md-content'; promptCode.style.cssText = 'flex:1;word-break:break-word;font-size:12px;line-height:1.5;';
+    renderMarkdown(promptCode, resolvedPrompt());
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = 'Copy'; copyBtn.className = 'btn btn-accent';
+    copyBtn.onclick = () => navigator.clipboard.writeText(resolvedPrompt()).then(() => {
+      copyBtn.textContent = '✓ Copied'; setTimeout(() => copyBtn.textContent = 'Copy', 2000);
+    });
+    const varSummaryEl = document.createElement('div');
+    function refreshVarSummary() {
+      varSummaryEl.innerHTML = '';
+      const keys = [...new Set([...detectVars(promptState.prompt), ...Object.keys(promptState.vars || {})])].sort();
+      for (const k of keys) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:8px;margin-top:2px;font-size:12px;';
+        const l = document.createElement('span'); l.className = 'text-muted'; l.style.flexShrink = '0'; l.textContent = k + ':';
+        const v = document.createElement('span'); v.textContent = promptState.vars[k] || '—';
+        row.appendChild(l); row.appendChild(v); varSummaryEl.appendChild(row);
+      }
+    }
+    refreshVarSummary();
+    box.appendChild(varSummaryEl);
+
+    copyRow.appendChild(promptCode); copyRow.appendChild(copyBtn);
+    box.appendChild(copyRow);
 
     if (isAuthed) {
       const editBtn = document.createElement('button');
-      editBtn.textContent = 'Edit';
-      editBtn.className = 'btn btn-ghost section-mt';
-      editBtn.onclick = () => {
-        desc.style.display = 'none';
-        editBtn.style.display = 'none';
-        const textarea = document.createElement('textarea');
-        textarea.value = asset.instructions || '';
-        textarea.rows = 4;
-        textarea.className = 'form-textarea';
-        descWrap.appendChild(textarea);
-        const saveBtn = document.createElement('button');
-        saveBtn.textContent = 'Save';
-        saveBtn.className = 'btn btn-primary section-mt';
-        saveBtn.onclick = async () => {
-          saveBtn.disabled = true;
-          saveBtn.textContent = 'Saving...';
-          try {
-            const res = await fetch(`${HUB_HTTP_URL}/api/task/${encodeURIComponent(station)}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
-              body: JSON.stringify({ instructions: textarea.value }),
-            });
-            if (!res.ok) { saveBtn.textContent = 'Failed'; saveBtn.disabled = false; }
-          } catch { saveBtn.textContent = 'Failed'; saveBtn.disabled = false; }
-        };
-        descWrap.appendChild(saveBtn);
-        textarea.focus();
+      editBtn.textContent = 'Edit'; editBtn.className = 'btn btn-ghost';
+      editBtn.style.cssText = 'margin-top:6px;font-size:11px;padding:2px 8px;opacity:0.6;';
+      box.appendChild(editBtn);
+
+      const editPanel = document.createElement('div');
+      editPanel.style.display = 'none'; editPanel.style.marginTop = '8px';
+
+      const ptLabel = document.createElement('div');
+      ptLabel.className = 'text-muted'; ptLabel.style.cssText = 'font-size:11px;margin-bottom:3px;';
+      ptLabel.textContent = 'Agent prompt (use {{task}}, {{name}}, … as placeholders)';
+      const promptTa = document.createElement('textarea');
+      promptTa.value = promptState.prompt; promptTa.rows = 6;
+      promptTa.className = 'form-textarea'; promptTa.style.fontFamily = 'monospace';
+      editPanel.appendChild(ptLabel); editPanel.appendChild(promptTa);
+
+      const varsHeader = document.createElement('div');
+      varsHeader.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:10px;margin-bottom:4px;';
+      const varsLabel = document.createElement('span');
+      varsLabel.className = 'text-muted'; varsLabel.style.cssText = 'font-size:11px;flex:1;';
+      varsLabel.textContent = 'Variables — reference as {{name}} in the prompt above';
+      const addVarBtn = document.createElement('button');
+      addVarBtn.textContent = '+ Add variable'; addVarBtn.className = 'btn btn-ghost';
+      addVarBtn.style.cssText = 'font-size:10px;padding:2px 6px;';
+      varsHeader.appendChild(varsLabel); varsHeader.appendChild(addVarBtn);
+      editPanel.appendChild(varsHeader);
+
+      const varsContainer = document.createElement('div');
+      varsContainer.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+      editPanel.appendChild(varsContainer);
+
+      function existingVarNames() {
+        return new Set([...varsContainer.querySelectorAll('.var-name')].map(n => n.value.trim()));
+      }
+      function refreshVarInputs() {
+        for (const k of detectVars(promptTa.value))
+          if (!existingVarNames().has(k)) varsContainer.appendChild(makeVarRow(k, promptState.vars[k] || '', promptTa));
+      }
+      addVarBtn.onclick = () => {
+        const existing = existingVarNames(); let n = 1;
+        while (existing.has('var' + n)) n++;
+        const row = makeVarRow('var' + n, '', promptTa);
+        varsContainer.appendChild(row); row.querySelector('.var-name').focus();
       };
-      descWrap.appendChild(editBtn);
+      for (const [k, v] of Object.entries(promptState.vars || {})) varsContainer.appendChild(makeVarRow(k, v, promptTa));
+      refreshVarInputs();
+      promptTa.addEventListener('input', refreshVarInputs);
+
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = 'Save'; saveBtn.className = 'btn btn-primary'; saveBtn.style.marginTop = '8px';
+      saveBtn.onclick = async () => {
+        saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+        promptState.prompt = promptTa.value.trim();
+        promptState.vars = {};
+        for (const row of varsContainer.querySelectorAll('[data-var-row]')) {
+          const name = row.querySelector('.var-name').value.trim();
+          const value = row.querySelector('.var-value').value.trim();
+          if (name) promptState.vars[name] = value;
+        }
+        try {
+          const res = await fetch(`${HUB_HTTP_URL}/api/task/${encodeURIComponent(station)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+            body: JSON.stringify({ prompt_template: promptState.prompt || null, prompt_vars: promptState.vars }),
+          });
+          if (res.ok) {
+            asset.prompt_template = promptState.prompt; asset.prompt_vars = promptState.vars;
+            renderMarkdown(promptCode, resolvedPrompt()); refreshVarSummary();
+            editBtn.style.display = ''; editPanel.style.display = 'none';
+          } else { saveBtn.textContent = 'Failed'; }
+        } catch { saveBtn.textContent = 'Failed'; }
+        saveBtn.disabled = false; saveBtn.textContent = 'Save';
+      };
+      editPanel.appendChild(saveBtn);
+
+      const sep = document.createElement('div');
+      sep.style.cssText = 'margin-top:12px;border-top:1px solid rgba(255,255,255,0.1);padding-top:10px;';
+      buildSeatFilter(asset, sep);
+      buildAccessControl(asset, sep);
+      const releaseBtn = document.createElement('button');
+      releaseBtn.textContent = '🛑 Release Agent'; releaseBtn.className = 'btn btn-ghost';
+      releaseBtn.style.cssText = 'color:#ff6b6b;border-color:#ff6b6b;width:100%;margin-top:8px;';
+      releaseBtn.onclick = async () => {
+        releaseBtn.disabled = true; releaseBtn.textContent = 'Releasing...';
+        try {
+          const r = await fetch(`${HUB_HTTP_URL}/api/signals/fire`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+            body: JSON.stringify({ station, payload: { action: 'release', message: 'Please stop and return to idle.' } }),
+          });
+          releaseBtn.textContent = r.ok ? '✓ Released' : 'Failed';
+        } catch { releaseBtn.textContent = 'Failed'; releaseBtn.disabled = false; }
+      };
+      sep.appendChild(releaseBtn);
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel'; cancelBtn.className = 'btn btn-ghost';
+      cancelBtn.style.cssText = 'margin-top:8px;margin-left:6px;font-size:11px;';
+      cancelBtn.onclick = () => { editBtn.style.display = ''; editPanel.style.display = 'none'; };
+      editBtn.onclick = () => { editBtn.style.display = 'none'; editPanel.style.display = ''; };
+      sep.appendChild(cancelBtn);
+      editPanel.appendChild(sep);
+      box.appendChild(editPanel);
     }
-    box.appendChild(descWrap);
-  }
+  } else {
+    // Openclaw: info rows + edit (assign/target)
+    const infoPanel = document.createElement('div');
+    infoPanel.className = 'section-mb';
+    infoPanel.appendChild(makeRow('Assigned to', asset.assigned_to || 'Anyone'));
+    infoPanel.appendChild(makeRow('Completion target', asset.completion_target ? asset.completion_target.replace(/_/g, ' ') : 'none'));
+    box.appendChild(infoPanel);
 
-  // Assigned-to setting (openclaw stations only, authed only)
-  if (CONFIG.apiKey && asset.openclaw_task) {
-    const assignWrap = document.createElement('div');
-    assignWrap.className = 'section-mb';
-    const assignLabel = document.createElement('div');
-    assignLabel.className = 'text-muted';
-    assignLabel.style.fontSize = '11px';
-    assignLabel.style.marginBottom = '4px';
-    assignLabel.textContent = 'Assigned to:';
-    const assignRow = document.createElement('div');
-    assignRow.className = 'settings-row';
-    const assignSelect = document.createElement('select');
-    assignSelect.className = 'form-input';
-    // "Anyone" option
-    const anyOpt = document.createElement('option');
-    anyOpt.value = '';
-    anyOpt.textContent = 'Anyone';
-    assignSelect.appendChild(anyOpt);
-    // Add agents from the property
-    const seen = new Set();
-    for (const [, a] of agents) {
-      const name = a.agent_name || a.agent_id;
-      if (seen.has(name)) continue;
-      seen.add(name);
-      const opt = document.createElement('option');
-      opt.value = name;
-      opt.textContent = name;
-      if (asset.assigned_to && name === asset.assigned_to) opt.selected = true;
-      assignSelect.appendChild(opt);
+    if (isAuthed) {
+      const editBtn = document.createElement('button');
+      editBtn.textContent = 'Edit'; editBtn.className = 'btn btn-ghost';
+      editBtn.style.cssText = 'margin-top:6px;font-size:11px;padding:2px 8px;opacity:0.6;';
+      box.appendChild(editBtn);
+
+      const editPanel = document.createElement('div');
+      editPanel.style.display = 'none'; editPanel.style.marginTop = '8px';
+
+      const assignLabel = document.createElement('div');
+      assignLabel.className = 'text-muted'; assignLabel.style.cssText = 'font-size:11px;margin-bottom:3px;';
+      assignLabel.textContent = 'Assigned to';
+      const assignSel = document.createElement('select'); assignSel.className = 'form-input';
+      const anyOpt = document.createElement('option'); anyOpt.value = ''; anyOpt.textContent = 'Anyone'; assignSel.appendChild(anyOpt);
+      const seen = new Set();
+      for (const [, a] of agents) {
+        const name = a.agent_name || a.agent_id;
+        if (seen.has(name)) continue; seen.add(name);
+        const o = document.createElement('option'); o.value = name; o.textContent = name;
+        if (name === asset.assigned_to) o.selected = true; assignSel.appendChild(o);
+      }
+      if (asset.assigned_to && !seen.has(asset.assigned_to)) {
+        const o = document.createElement('option'); o.value = asset.assigned_to;
+        o.textContent = asset.assigned_to + ' (offline)'; o.selected = true; assignSel.appendChild(o);
+      }
+      const ctLabel = document.createElement('div');
+      ctLabel.className = 'text-muted'; ctLabel.style.cssText = 'font-size:11px;margin-top:8px;margin-bottom:3px;';
+      ctLabel.textContent = 'Completion target';
+      const ctSel = document.createElement('select'); ctSel.className = 'form-input';
+      const noneOpt = document.createElement('option'); noneOpt.value = ''; noneOpt.textContent = '— none —'; ctSel.appendChild(noneOpt);
+      for (const a of (property?.assets || [])) {
+        if (!a.station || a.station === station) continue;
+        const o = document.createElement('option'); o.value = a.station; o.textContent = a.station.replace(/_/g, ' ');
+        if (a.station === asset.completion_target) o.selected = true; ctSel.appendChild(o);
+      }
+      editPanel.appendChild(assignLabel); editPanel.appendChild(assignSel);
+      editPanel.appendChild(ctLabel); editPanel.appendChild(ctSel);
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = 'Save'; saveBtn.className = 'btn btn-primary'; saveBtn.style.marginTop = '8px';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel'; cancelBtn.className = 'btn btn-ghost'; cancelBtn.style.cssText = 'margin-top:8px;margin-left:6px;';
+      saveBtn.onclick = async () => {
+        saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+        try {
+          const res = await fetch(`${HUB_HTTP_URL}/api/task/${encodeURIComponent(station)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+            body: JSON.stringify({ assigned_to: assignSel.value || null, completion_target: ctSel.value || null }),
+          });
+          if (!res.ok) { saveBtn.textContent = 'Failed'; saveBtn.disabled = false; return; }
+          cancelBtn.onclick();
+        } catch { saveBtn.textContent = 'Failed'; saveBtn.disabled = false; }
+      };
+      cancelBtn.onclick = () => { editBtn.style.display = ''; editPanel.style.display = 'none'; };
+      editBtn.onclick = () => { editBtn.style.display = 'none'; editPanel.style.display = ''; };
+      editPanel.appendChild(saveBtn); editPanel.appendChild(cancelBtn);
+      box.appendChild(editPanel);
     }
-    // If assigned_to is set but agent isn't online, still show it
-    if (asset.assigned_to && !seen.has(asset.assigned_to)) {
-      const opt = document.createElement('option');
-      opt.value = asset.assigned_to;
-      opt.textContent = asset.assigned_to + ' (offline)';
-      opt.selected = true;
-      assignSelect.appendChild(opt);
-    }
-    assignSelect.onchange = async () => {
-      assignSelect.disabled = true;
-      try {
-        const res = await fetch(`${HUB_HTTP_URL}/api/task/${encodeURIComponent(station)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
-          body: JSON.stringify({ assigned_to: assignSelect.value || null }),
-        });
-        if (!res.ok) assignSelect.disabled = false;
-      } catch { assignSelect.disabled = false; }
-      assignSelect.disabled = false;
-    };
-    assignRow.appendChild(assignSelect);
-    assignWrap.appendChild(assignLabel);
-    assignWrap.appendChild(assignRow);
-    box.appendChild(assignWrap);
   }
-
-  // Copy-paste agent prompt (not for openclaw_task — agent spawns on demand)
-  if (!asset.openclaw_task) {
-    const agentPrompt = `Subscribe to "${station}" and loop: check_events() → when a task arrives, [YOUR TASK HERE], say() a brief comment, answer_task with the result → check_events() again.`;
-    const promptWrap = document.createElement('div');
-    promptWrap.className = 'section-mb';
-    const promptLabel = document.createElement('div');
-    promptLabel.className = 'text-muted';
-    promptLabel.style.fontSize = '11px';
-    promptLabel.style.marginBottom = '4px';
-    promptLabel.textContent = 'Paste this into your agent to man this station:';
-    const promptRow = document.createElement('div');
-    promptRow.className = 'settings-row';
-    const promptCode = document.createElement('code');
-    promptCode.className = 'text-info';
-    promptCode.style.flex = '1';
-    promptCode.style.wordBreak = 'break-word';
-    promptCode.textContent = agentPrompt;
-    const copyBtn = document.createElement('button');
-    copyBtn.textContent = 'Copy';
-    copyBtn.className = 'btn btn-accent';
-    copyBtn.onclick = () => {
-      navigator.clipboard.writeText(agentPrompt).then(() => {
-        copyBtn.textContent = '✓ Copied';
-        setTimeout(() => copyBtn.textContent = 'Copy', 2000);
-      });
-    };
-    promptRow.appendChild(promptCode);
-    promptRow.appendChild(copyBtn);
-    promptWrap.appendChild(promptLabel);
-    promptWrap.appendChild(promptRow);
-    box.appendChild(promptWrap);
-
-    // Pro tips
-    const allTaskStations = (property?.assets || []).filter(a => a.task && !a.openclaw_task).map(a => a.station);
-    const multiExample = allTaskStations.length > 1
-      ? allTaskStations.map(s => `subscribe("${s}")`).join(', then ') + ' — one agent handles all of them.'
-      : 'Subscribe to multiple task stations — one agent handles whichever fires first.';
-    const tipsWrap = document.createElement('div');
-    tipsWrap.className = 'section-mb';
-    const toggleLink = document.createElement('div');
-    toggleLink.style.cssText = 'color:#888;font-size:11px;cursor:pointer;user-select:none;';
-    toggleLink.textContent = '► Pro tips';
-    const tipsContent = document.createElement('pre');
-    tipsContent.className = 'modal-content';
-    tipsContent.style.cssText = 'display:none;margin-top:6px;font-size:11px;white-space:pre-wrap;';
-    tipsContent.textContent = 'PRO TIPS:\n\n' +
-      '• Multi-task: ' + multiExample + '\n\n' +
-      '• Instead of [YOUR TASK HERE], reference a .md\n' +
-      '  file with detailed instructions.\n\n' +
-      '• Leave [YOUR TASK HERE] empty and define\n' +
-      '  everything in the CLAUDE.md file instead.';
-    toggleLink.onclick = () => {
-      const show = tipsContent.style.display === 'none';
-      tipsContent.style.display = show ? '' : 'none';
-      toggleLink.textContent = show ? '▼ Pro tips' : '► Pro tips';
-    };
-    tipsWrap.appendChild(toggleLink);
-    tipsWrap.appendChild(tipsContent);
-    box.appendChild(tipsWrap);
-  }
-
-  const isOcTask = !!asset.openclaw_task;
 
   if (state.status === 'idle') {
     if (isOpen) {
@@ -2394,11 +3167,6 @@ function showTask(asset) {
       info.className = 'text-green section-mb';
       info.textContent = `${agentNames} on duty`;
       box.appendChild(info);
-    } else if (!isOcTask) {
-      const closed = document.createElement('div');
-      closed.className = 'text-muted section-pad';
-      closed.textContent = 'No agent on duty \u2014 task will run when one arrives.';
-      box.appendChild(closed);
     }
 
     const addForm = document.createElement('div');
@@ -2440,8 +3208,8 @@ function showTask(asset) {
   } else if (state.status === 'pending') {
     if (state.prompt) {
       const promptEl = document.createElement('div');
-      promptEl.style.cssText = 'border-left:3px solid #f0d888;padding:6px 10px;margin-bottom:10px;background:rgba(240,216,136,0.06);border-radius:0 6px 6px 0;font-size:12px;color:#ccc;white-space:pre-wrap;word-break:break-word;';
-      promptEl.textContent = state.prompt;
+      promptEl.style.cssText = 'border-left:3px solid #f0d888;padding:6px 10px;margin-bottom:10px;background:rgba(240,216,136,0.06);border-radius:0 6px 6px 0;font-size:12px;line-height:1.5;word-break:break-word;';
+      renderMarkdown(promptEl, state.prompt);
       box.appendChild(promptEl);
     }
 
@@ -2499,7 +3267,7 @@ function showTask(asset) {
   }
 
   buildSeatFilter(asset, box);
-  appendFloatingTextUI(box, asset);
+  buildAccessControl(asset, box);
 
   modal.appendChild(box);
   const openedAt = Date.now();
@@ -2535,16 +3303,36 @@ function showTask(asset) {
         card.style.cssText = `border:1px solid rgba(255,255,255,0.1);border-left:3px solid ${accentColor};border-radius:6px;padding:8px;margin-bottom:6px;background:rgba(10,20,30,0.4);`;
 
         const dtoHeader = document.createElement('div');
-        dtoHeader.style.cssText = `font-size:10px;color:${accentColor};margin-bottom:6px;font-weight:bold;`;
-        dtoHeader.textContent = `DTO ${dto.id} (${dto.type})`;
+        dtoHeader.style.cssText = `font-size:10px;color:${accentColor};margin-bottom:6px;font-weight:bold;display:flex;justify-content:space-between;align-items:center;`;
+        const dtoLabel = document.createElement('span');
+        dtoLabel.textContent = `DTO ${dto.id} (${dto.type})`;
+        dtoHeader.appendChild(dtoLabel);
+        if (CONFIG.apiKey) {
+          const delBtn = document.createElement('span');
+          delBtn.textContent = '✕';
+          delBtn.style.cssText = 'cursor:pointer;color:#ff6b6b;font-size:14px;padding:0 4px;';
+          delBtn.title = 'Delete DTO';
+          delBtn.onclick = async (e) => {
+            e.stopPropagation();
+            try {
+              const res = await fetch(`${HUB_HTTP_URL}/api/queue/${encodeURIComponent(station)}/${dto.id}`, {
+                method: 'DELETE',
+                headers: { Authorization: `Bearer ${CONFIG.apiKey}` },
+              });
+              if (res.ok) card.remove();
+            } catch {}
+          };
+          dtoHeader.appendChild(delBtn);
+        }
         card.appendChild(dtoHeader);
 
-        for (const entry of dto.trail) {
+        for (const entry of [...dto.trail].reverse()) {
           const line = document.createElement('div');
           line.style.cssText = `border-left:2px solid rgba(136,192,240,0.3);padding-left:8px;margin-bottom:6px;`;
           const label = document.createElement('div');
           label.style.cssText = `color:${accentColor};font-weight:bold;font-size:10px;margin-bottom:3px;`;
-          label.textContent = `${entry.station} (${entry.by})`;
+          const ts = entry.at ? new Date(entry.at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+          label.textContent = `${entry.station} (${entry.by})${ts ? ' · ' + ts : ''}`;
           line.appendChild(label);
           const text = document.createElement('div');
           text.style.cssText = 'font-size:12px;color:#ccc;word-break:break-word;';
@@ -2557,40 +3345,8 @@ function showTask(asset) {
           card.appendChild(line);
         }
 
-        if (!isActive && forwardTargets.length > 0) {
-          const fwdRow = document.createElement('div');
-          fwdRow.style.cssText = 'display:flex;gap:4px;align-items:center;margin-top:4px;';
-          const fwdSelect = buildTargetSelect(forwardTargets);
-          const fwdBtn = document.createElement('button');
-          fwdBtn.textContent = 'Forward';
-          fwdBtn.className = 'btn btn-accent';
-          fwdBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
-          fwdBtn.onclick = async () => {
-            if (!fwdSelect.value) return;
-            const target = JSON.parse(fwdSelect.value);
-            fwdBtn.disabled = true;
-            fwdBtn.textContent = 'Forwarding...';
-            try {
-              const fwdHeaders = { 'Content-Type': 'application/json' };
-              if (CONFIG.apiKey) fwdHeaders['Authorization'] = `Bearer ${CONFIG.apiKey}`;
-              const fwdRes = await fetch(
-                `${HUB_HTTP_URL}/api/queue/${encodeURIComponent(station)}/${dto.id}/forward`,
-                { method: 'POST', headers: fwdHeaders, body: JSON.stringify({ target_station: target.station, by: 'Viewer', data: 'Forwarded by viewer' }) }
-              );
-              if (fwdRes.ok) {
-                card.style.opacity = '0.3';
-                card.style.transition = 'opacity 0.5s';
-                fwdBtn.textContent = 'Forwarded';
-              } else {
-                const err = await fwdRes.json().catch(() => ({}));
-                fwdBtn.textContent = err.error || 'Error';
-                fwdBtn.disabled = false;
-              }
-            } catch { fwdBtn.textContent = 'Failed'; fwdBtn.disabled = false; }
-          };
-          fwdRow.appendChild(fwdSelect);
-          fwdRow.appendChild(fwdBtn);
-          card.appendChild(fwdRow);
+        if (!isActive) {
+          buildDtoActions(card, dto, station, { targets: forwardTargets, showRunAgain: true });
         }
 
         return card;
@@ -2658,173 +3414,467 @@ function showStationInfo(asset) {
 
   showModal(`${icon} ${station.replace(/_/g, ' ')}`, text, true, setup, null, null, (box) => {
     buildSeatFilter(asset, box);
+    buildAccessControl(asset, box);
   });
 }
 
 function showSignalInfo(asset) {
   const station = asset.station || 'Unnamed Signal';
   const trigger = asset.trigger;
-  const interval = asset.trigger_interval || 60;
+  let interval = asset.trigger_interval || 60;
 
-  let desc = `Trigger: ${trigger}\n\n`;
+  const fwd = asset.forward_to === 'none' ? null : (asset.forward_to || station);
+  const fwdInstruction = fwd ? `, then forward_dto to "${fwd}" with the result` : '';
+  const agentPrompt = trigger === 'manual'
+    ? `Subscribe to "${station}" and loop: check_events() → when it fires, receive_dto("${station}") to get the payload, {{task}}, say() a brief summary${fwdInstruction} → repeat. If you receive a signal with action "release", stop the loop and return to idle.`
+    : `Subscribe to "${station}" and loop: check_events() (fires every ${interval}s) → receive_dto("${station}", dto_id) to get data, {{task}}, say() a brief summary${fwdInstruction} → repeat. If you receive a signal with action "release", stop the loop and return to idle.`;
 
-  let setup = '';
-  let editableInterval = null;
+  showModal(`🔔 ${station}`, '', true, null, null, null, (box) => {
+    const isAuthed = !!CONFIG.apiKey;
+    const contentEl = box.querySelector('.modal-content');
+    if (contentEl) contentEl.remove();
 
-  if (trigger === 'manual') {
-    desc += 'Fires manually via API, viewer, or git hooks.\nCreates a DTO in the station queue on each fire.';
-    setup = 'PRO TIPS:\n\n';
-    setup += '• Instead of [YOUR TASK HERE], reference a .md file\n';
-    setup += '  with detailed instructions for the agent.\n\n';
-    setup += '• Leave [YOUR TASK HERE] empty and define everything\n';
-    setup += '  in the CLAUDE.md file instead.';
-  } else if (trigger === 'heartbeat') {
-    desc += `Fires every ${interval}s. Accumulates results in a single DTO.\nWhen forwarded, a new DTO is created on next tick.`;
-    setup = 'PRO TIPS:\n\n';
-    setup += '• Great for periodic checks: RSS feeds,\n';
-    setup += '  API polling, health monitoring.\n\n';
-    setup += '• Results accumulate in one DTO — forward\n';
-    setup += '  it to archive when it gets long.\n\n';
-    setup += '• Pair with a task station to auto-process\n';
-    setup += '  each tick.';
+    function makeRow(label, value) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;margin-bottom:3px;font-size:12px;';
+      const l = document.createElement('span');
+      l.className = 'text-muted';
+      l.style.flexShrink = '0';
+      l.textContent = label + ':';
+      const v = document.createElement('span');
+      v.textContent = value;
+      row.appendChild(l); row.appendChild(v);
+      return row;
+    }
 
-    editableInterval = { station, currentInterval: interval };
-  }
+    // --- Info ---
+    const infoPanel = document.createElement('div');
+    infoPanel.className = 'section-mb';
+    infoPanel.appendChild(makeRow('Trigger', trigger));
+    if (trigger === 'heartbeat') {
+      const intervalVal = document.createElement('span');
+      intervalVal.textContent = `every ${interval}s`;
+      const intervalRow = makeRow('Interval', '');
+      intervalRow.querySelector('span:last-child').replaceWith(intervalVal);
+      infoPanel.appendChild(intervalRow);
+    }
+    if (asset.forward_to) {
+      infoPanel.appendChild(makeRow('Forward to', asset.forward_to.replace(/_/g, ' ')));
+    }
+    box.appendChild(infoPanel);
 
-  // Copy-paste agent prompt
-  let agentPrompt;
-  if (trigger === 'manual') {
-    agentPrompt = `Subscribe to "${station}" and loop: check_events() → when it fires, receive_dto("${station}") to get the task, [YOUR TASK HERE], say() a brief summary in your speech bubble, then forward_dto back to "${station}" with the full result → repeat.`;
-  } else {
-    agentPrompt = `Subscribe to "${station}" and loop: check_events() (fires every ${interval}s) → receive_dto("${station}", dto_id) to get data, do your periodic task, say() a brief summary, then forward_dto back with result → repeat.`;
-  }
+    // Payload + fire button (manual only)
+    if (trigger === 'manual') {
+      const payloadWrap = document.createElement('div');
+      payloadWrap.className = 'section-mb';
+      const payloadLabel = document.createElement('div');
+      payloadLabel.className = 'text-muted';
+      payloadLabel.style.cssText = 'font-size:11px;margin-bottom:4px;';
+      payloadLabel.textContent = 'Payload (sent with fire):';
+      const payloadTa = document.createElement('textarea');
+      payloadTa.rows = 3;
+      payloadTa.placeholder = 'Enter task or data to send...';
+      const currentPayload = asset.trigger_payload;
+      payloadTa.value = currentPayload !== undefined
+        ? (typeof currentPayload === 'string' ? currentPayload : JSON.stringify(currentPayload, null, 2))
+        : '';
+      payloadTa.className = 'form-textarea';
+      const fireContainer = document.createElement('div');
+      fireContainer.className = 'settings-row';
+      fireContainer.style.marginTop = '6px';
+      const fireButton = document.createElement('button');
+      fireButton.textContent = 'Fire';
+      fireButton.className = 'btn btn-fire';
+      const fireStatus = document.createElement('span');
+      fireStatus.className = 'text-status';
+      fireButton.onclick = async () => {
+        fireButton.disabled = true; fireButton.style.opacity = '0.6';
+        try {
+          const body = { station };
+          const val = payloadTa.value.trim();
+          if (val) { try { body.payload = JSON.parse(val); } catch { body.payload = { data: val }; } }
+          const r = await fetch('/api/signals/fire', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...(CONFIG.apiKey && { Authorization: `Bearer ${CONFIG.apiKey}` }) },
+            body: JSON.stringify(body),
+          });
+          if (r.ok) { fireStatus.textContent = 'Fired!'; fireStatus.style.color = '#60d060'; }
+          else { const e = await r.json().catch(() => ({})); fireStatus.textContent = e.error || 'Failed'; fireStatus.style.color = '#d04040'; }
+        } catch { fireStatus.textContent = 'Error'; fireStatus.style.color = '#d04040'; }
+        fireButton.disabled = false; fireButton.style.opacity = '1';
+        setTimeout(() => fireStatus.textContent = '', 3000);
+      };
+      fireContainer.appendChild(fireButton); fireContainer.appendChild(fireStatus);
+      payloadWrap.appendChild(payloadLabel); payloadWrap.appendChild(payloadTa); payloadWrap.appendChild(fireContainer);
+      box.appendChild(payloadWrap);
+    }
 
-  const fireBtn = trigger === 'manual' ? { station } : null;
-  showModal(`🔔 ${station}`, desc, true, setup, editableInterval, asset, (box) => {
-    // Agent prompt section
-    const promptWrap = document.createElement('div');
-    promptWrap.className = 'section-mb';
-    const promptLabel = document.createElement('div');
-    promptLabel.className = 'text-muted';
-    promptLabel.style.fontSize = '11px';
-    promptLabel.style.marginBottom = '4px';
-    promptLabel.textContent = 'Paste this into your agent to man this station:';
-    const promptRow = document.createElement('div');
-    promptRow.className = 'settings-row';
-    const promptCode = document.createElement('code');
-    promptCode.className = 'text-info';
-    promptCode.style.flex = '1';
-    promptCode.style.wordBreak = 'break-word';
-    promptCode.textContent = agentPrompt;
+    // Prompt state — load from asset.content, then prompt_template, then auto-generated
+    let state = { prompt: asset.prompt_template || agentPrompt, vars: asset.prompt_vars || {} };
+    try { if (asset.content?.data) state = { prompt: agentPrompt, vars: {}, ...JSON.parse(asset.content.data) }; } catch {}
+
+    function detectVars(text) {
+      const matches = [...(text || '').matchAll(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g)];
+      return [...new Set(matches.map(m => m[1]))].sort();
+    }
+    function applyVars(text, vars) {
+      return (text || '').replace(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g, (_, n) => vars[n] || `{{${n}}}`);
+    }
+    function resolvedPrompt() { return applyVars(state.prompt, state.vars); }
+
+    // Variable summary rows (display mode)
+    const varSummaryEl = document.createElement('div');
+    function refreshVarSummary() {
+      varSummaryEl.innerHTML = '';
+      const keys = [...new Set([...detectVars(state.prompt), ...Object.keys(state.vars || {})])].sort();
+      for (const k of keys) {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;gap:8px;margin-top:2px;font-size:12px;';
+        const l = document.createElement('span'); l.className = 'text-muted'; l.style.flexShrink = '0'; l.textContent = k + ':';
+        const v = document.createElement('span'); v.textContent = state.vars[k] || '—';
+        row.appendChild(l); row.appendChild(v);
+        varSummaryEl.appendChild(row);
+      }
+    }
+    refreshVarSummary();
+    box.appendChild(varSummaryEl);
+
+    // --- Prompt to copy ---
+    const copyRow = document.createElement('div');
+    copyRow.className = 'settings-row';
+    copyRow.style.cssText = 'margin-top:10px;align-items:flex-start;';
+    const promptCode = document.createElement('div');
+    promptCode.className = 'md-content';
+    promptCode.style.cssText = 'flex:1;word-break:break-word;font-size:12px;line-height:1.5;';
+    renderMarkdown(promptCode, resolvedPrompt());
     const copyBtn = document.createElement('button');
     copyBtn.textContent = 'Copy';
     copyBtn.className = 'btn btn-accent';
     copyBtn.onclick = () => {
-      navigator.clipboard.writeText(agentPrompt).then(() => {
+      navigator.clipboard.writeText(resolvedPrompt()).then(() => {
         copyBtn.textContent = '✓ Copied';
         setTimeout(() => copyBtn.textContent = 'Copy', 2000);
       });
     };
-    promptRow.appendChild(promptCode);
-    promptRow.appendChild(copyBtn);
-    promptWrap.appendChild(promptLabel);
-    promptWrap.appendChild(promptRow);
-    // Insert after board content (or after title if no board)
-    const contentEl = box.querySelector('.modal-content');
-    if (contentEl) {
-      box.insertBefore(promptWrap, contentEl);
-    } else {
-      box.appendChild(promptWrap);
+    copyRow.appendChild(promptCode); copyRow.appendChild(copyBtn);
+    box.appendChild(copyRow);
+
+    if (!isAuthed) {
+      loadDtoQueue(box, station);
+      return;
     }
 
-    // Seat filter + separator
-    const signalSep = document.createElement('div');
-    signalSep.style.cssText = 'margin-top:12px;border-top:1px solid rgba(255,255,255,0.1);padding-top:10px;';
-    buildSeatFilter(asset, signalSep);
-    box.appendChild(signalSep);
+    // --- Edit button ---
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'Edit';
+    editBtn.className = 'btn btn-ghost';
+    editBtn.style.cssText = 'margin-top:6px;font-size:11px;padding:2px 8px;opacity:0.6;';
+    box.appendChild(editBtn);
 
-    // Async: load DTO queue for this station
-    (async () => {
+    // --- Edit panel ---
+    const editPanel = document.createElement('div');
+    editPanel.style.display = 'none';
+    editPanel.style.marginTop = '8px';
+
+    // Prompt textarea
+    const ptLabel = document.createElement('div');
+    ptLabel.className = 'text-muted';
+    ptLabel.style.cssText = 'font-size:11px;margin-bottom:3px;';
+    ptLabel.textContent = 'Agent prompt (use {{var1}}, {{name}}, … as placeholders)';
+    const promptTa = document.createElement('textarea');
+    promptTa.value = state.prompt;
+    promptTa.rows = 6;
+    promptTa.className = 'form-textarea';
+    promptTa.style.fontFamily = 'monospace';
+    editPanel.appendChild(ptLabel);
+    editPanel.appendChild(promptTa);
+
+    // Variables section
+    const varsHeader = document.createElement('div');
+    varsHeader.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:10px;margin-bottom:4px;';
+    const varsLabel = document.createElement('span');
+    varsLabel.className = 'text-muted'; varsLabel.style.cssText = 'font-size:11px;flex:1;';
+    varsLabel.textContent = 'Variables — reference as {{name}} in the prompt above';
+    const addVarBtn = document.createElement('button');
+    addVarBtn.textContent = '+ Add variable'; addVarBtn.className = 'btn btn-ghost';
+    addVarBtn.style.cssText = 'font-size:10px;padding:2px 6px;';
+    varsHeader.appendChild(varsLabel); varsHeader.appendChild(addVarBtn);
+    editPanel.appendChild(varsHeader);
+
+    const varsContainer = document.createElement('div');
+    varsContainer.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+    editPanel.appendChild(varsContainer);
+
+    function makeVarRow(name, value) {
+      const row = document.createElement('div');
+      row.dataset.varRow = '1';
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;';
+      const nameInp = document.createElement('input');
+      nameInp.type = 'text'; nameInp.className = 'form-input-sm var-name';
+      nameInp.style.cssText = 'width:90px;flex-shrink:0;font-family:monospace;font-size:11px;';
+      nameInp.placeholder = 'name'; nameInp.value = name; nameInp.dataset.lastName = name;
+      const eq = document.createElement('span');
+      eq.className = 'text-muted'; eq.style.cssText = 'font-size:11px;flex-shrink:0;'; eq.textContent = '=';
+      const valInp = document.createElement('input');
+      valInp.type = 'text'; valInp.className = 'form-input-sm var-value';
+      valInp.style.flex = '1'; valInp.placeholder = 'value'; valInp.value = value;
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '×'; removeBtn.className = 'btn btn-ghost';
+      removeBtn.style.cssText = 'padding:1px 5px;font-size:13px;flex-shrink:0;';
+      removeBtn.onclick = () => row.remove();
+      nameInp.addEventListener('change', () => {
+        const oldName = nameInp.dataset.lastName;
+        const newName = nameInp.value.trim();
+        if (oldName && newName && oldName !== newName)
+          promptTa.value = promptTa.value.replace(new RegExp(`\\{\\{${oldName}\\}\\}`, 'g'), `{{${newName}}}`);
+        nameInp.dataset.lastName = newName;
+      });
+      row.appendChild(nameInp); row.appendChild(eq); row.appendChild(valInp); row.appendChild(removeBtn);
+      return row;
+    }
+
+    function existingVarNames() {
+      return new Set([...varsContainer.querySelectorAll('.var-name')].map(n => n.value.trim()));
+    }
+    function refreshVarInputs() {
+      for (const k of detectVars(promptTa.value))
+        if (!existingVarNames().has(k)) varsContainer.appendChild(makeVarRow(k, state.vars[k] || ''));
+    }
+    addVarBtn.onclick = () => {
+      const existing = existingVarNames(); let n = 1;
+      while (existing.has('var' + n)) n++;
+      const row = makeVarRow('var' + n, '');
+      varsContainer.appendChild(row); row.querySelector('.var-name').focus();
+    };
+    for (const [k, v] of Object.entries(state.vars || {})) varsContainer.appendChild(makeVarRow(k, v));
+    refreshVarInputs();
+    promptTa.addEventListener('input', refreshVarInputs);
+
+    // Separator before station settings
+    const sep = document.createElement('div');
+    sep.style.cssText = 'margin-top:12px;border-top:1px solid rgba(255,255,255,0.1);padding-top:10px;';
+    editPanel.appendChild(sep);
+
+    // Forward-to selector
+    const fwdWrap = document.createElement('div');
+    fwdWrap.className = 'settings-row'; fwdWrap.style.marginBottom = '6px';
+    const fwdLbl = document.createElement('span');
+    fwdLbl.className = 'text-label'; fwdLbl.textContent = 'Forward to:';
+    const fwdSelect = document.createElement('select');
+    fwdSelect.className = 'form-input-sm';
+    // None option (stay in place)
+    const noneOpt = document.createElement('option');
+    noneOpt.value = 'none'; noneOpt.textContent = '— none (stays here)';
+    if (asset.forward_to === 'none') noneOpt.selected = true;
+    fwdSelect.appendChild(noneOpt);
+    // Self option (default loop)
+    const selfOpt = document.createElement('option');
+    selfOpt.value = ''; selfOpt.textContent = `↩ ${station} (self)`;
+    if (!asset.forward_to) selfOpt.selected = true;
+    fwdSelect.appendChild(selfOpt);
+    // All other stations as targets
+    for (const a of (property?.assets || [])) {
+      if (!a.station || a.station === station) continue;
+      const opt = document.createElement('option');
+      opt.value = a.station; opt.textContent = a.station.replace(/_/g, ' ');
+      if (asset.forward_to === a.station) opt.selected = true;
+      fwdSelect.appendChild(opt);
+    }
+    const fwdStatus = document.createElement('span');
+    fwdStatus.className = 'text-status';
+    fwdSelect.onchange = async () => {
+      const target = fwdSelect.value || null;
       try {
-        const headers = CONFIG.apiKey ? { Authorization: `Bearer ${CONFIG.apiKey}` } : {};
-        const res = await fetch(`${HUB_HTTP_URL}/api/queue/${encodeURIComponent(station)}`, { headers });
-        if (!res.ok) return;
-        const { dtos } = await res.json();
-        if (!dtos || !dtos.length) return;
+        const res = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+          body: JSON.stringify({ forward_to: target }),
+        });
+        if (res.ok) {
+          if (target) asset.forward_to = target; else delete asset.forward_to;
+          // Update prompt if using default
+          const newFwd = target || station;
+          renderMarkdown(promptCode, resolvedPrompt());
+          fwdStatus.textContent = '✓'; fwdStatus.style.color = '#60d060';
+        } else { fwdStatus.textContent = '✗'; fwdStatus.style.color = '#d04040'; }
+      } catch { fwdStatus.textContent = '✗'; fwdStatus.style.color = '#d04040'; }
+      setTimeout(() => fwdStatus.textContent = '', 2000);
+    };
+    fwdWrap.appendChild(fwdLbl); fwdWrap.appendChild(fwdSelect); fwdWrap.appendChild(fwdStatus);
+    sep.appendChild(fwdWrap);
 
-        const forwardTargets = getTaskTargets();
-        const section = document.createElement('div');
-        section.style.cssText = 'margin-top:12px;border-top:1px solid rgba(255,255,255,0.1);padding-top:10px;';
-        const sectionTitle = document.createElement('div');
-        sectionTitle.style.cssText = 'font-size:11px;color:#aaa;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;';
-        sectionTitle.textContent = `DTO Queue (${dtos.length})`;
-        section.appendChild(sectionTitle);
+    buildSeatFilter(asset, sep);
+    buildAccessControl(asset, sep);
 
-        for (const dto of dtos) {
-          const card = document.createElement('div');
-          card.style.cssText = 'border:1px solid rgba(255,255,255,0.1);border-left:3px solid #88c0f0;border-radius:6px;padding:8px;margin-bottom:6px;background:rgba(10,20,30,0.4);';
-          const dtoHeader = document.createElement('div');
-          dtoHeader.style.cssText = 'font-size:10px;color:#88c0f0;margin-bottom:6px;font-weight:bold;';
-          dtoHeader.textContent = `DTO ${dto.id} (${dto.type})`;
-          card.appendChild(dtoHeader);
-          for (const entry of dto.trail) {
-            const line = document.createElement('div');
-            line.style.cssText = 'border-left:2px solid rgba(136,192,240,0.3);padding-left:8px;margin-bottom:6px;';
-            const label = document.createElement('div');
-            label.style.cssText = 'color:#88c0f0;font-weight:bold;font-size:10px;margin-bottom:3px;';
-            label.textContent = `${entry.station} (${entry.by})`;
-            line.appendChild(label);
-            const text = document.createElement('div');
-            text.style.cssText = 'font-size:12px;color:#ccc;word-break:break-word;';
-            if (/<[a-z][\s\S]*>/i.test(entry.data)) {
-              text.innerHTML = sanitizeHTML(entry.data);
-            } else {
-              text.textContent = entry.data;
-            }
-            line.appendChild(text);
-            card.appendChild(line);
-          }
-          if (forwardTargets.length > 0) {
-            const fwdRow = document.createElement('div');
-            fwdRow.style.cssText = 'display:flex;gap:4px;align-items:center;margin-top:4px;';
-            const fwdSelect = buildTargetSelect(forwardTargets);
-            const fwdBtn = document.createElement('button');
-            fwdBtn.textContent = 'Forward';
-            fwdBtn.className = 'btn btn-accent';
-            fwdBtn.style.cssText = 'font-size:11px;padding:2px 8px;';
-            fwdBtn.onclick = async () => {
-              if (!fwdSelect.value) return;
-              const target = JSON.parse(fwdSelect.value);
-              fwdBtn.disabled = true;
-              fwdBtn.textContent = 'Forwarding...';
-              try {
-                const fwdHeaders = { 'Content-Type': 'application/json' };
-                if (CONFIG.apiKey) fwdHeaders['Authorization'] = `Bearer ${CONFIG.apiKey}`;
-                const fwdRes = await fetch(
-                  `${HUB_HTTP_URL}/api/queue/${encodeURIComponent(station)}/${dto.id}/forward`,
-                  { method: 'POST', headers: fwdHeaders, body: JSON.stringify({ target_station: target.station, by: 'Viewer', data: 'Forwarded by viewer' }) }
-                );
-                if (fwdRes.ok) {
-                  card.style.opacity = '0.3';
-                  card.style.transition = 'opacity 0.5s';
-                  fwdBtn.textContent = 'Forwarded';
-                } else {
-                  const err = await fwdRes.json().catch(() => ({}));
-                  fwdBtn.textContent = err.error || 'Error';
-                  fwdBtn.disabled = false;
-                }
-              } catch { fwdBtn.textContent = 'Failed'; fwdBtn.disabled = false; }
-            };
-            fwdRow.appendChild(fwdSelect);
-            fwdRow.appendChild(fwdBtn);
-            card.appendChild(fwdRow);
-          }
-          section.appendChild(card);
+    let iInput = null;
+    let tInput = null;
+    if (trigger === 'heartbeat') {
+      // Interval editor
+      const intervalWrap = document.createElement('div');
+      intervalWrap.className = 'settings-row';
+      const iLbl = document.createElement('span');
+      iLbl.className = 'text-label'; iLbl.textContent = 'Interval:';
+      iInput = document.createElement('input');
+      iInput.type = 'number'; iInput.min = '1'; iInput.value = interval; iInput.className = 'form-input-sm';
+      const iUnit = document.createElement('span');
+      iUnit.className = 'text-muted'; iUnit.textContent = 'seconds';
+      intervalWrap.appendChild(iLbl); intervalWrap.appendChild(iInput); intervalWrap.appendChild(iUnit);
+      sep.appendChild(intervalWrap);
+
+      // Max trail
+      const trailWrap = document.createElement('div');
+      trailWrap.className = 'settings-row';
+      trailWrap.style.marginTop = '6px';
+      const tLbl = document.createElement('span');
+      tLbl.className = 'text-label'; tLbl.textContent = 'Max trail:';
+      tInput = document.createElement('input');
+      tInput.type = 'number'; tInput.min = '1'; tInput.max = '1000';
+      tInput.value = asset.max_trail || ''; tInput.placeholder = 'unlimited'; tInput.className = 'form-input-sm';
+      tInput.style.width = '80px';
+      trailWrap.appendChild(tLbl); trailWrap.appendChild(tInput);
+      sep.appendChild(trailWrap);
+    }
+
+    // Release Agent
+    const releaseBtn = document.createElement('button');
+    releaseBtn.textContent = '🛑 Release Agent';
+    releaseBtn.className = 'btn btn-ghost';
+    releaseBtn.style.cssText = 'color:#ff6b6b;border-color:#ff6b6b;width:100%;margin-top:8px;';
+    releaseBtn.onclick = async () => {
+      releaseBtn.disabled = true; releaseBtn.textContent = 'Releasing...';
+      try {
+        const r = await fetch(`${HUB_HTTP_URL}/api/signals/fire`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+          body: JSON.stringify({ station, payload: { action: 'release', message: 'Please stop and return to idle.' } }),
+        });
+        releaseBtn.textContent = r.ok ? '✓ Released' : 'Failed';
+      } catch { releaseBtn.textContent = 'Failed'; releaseBtn.disabled = false; }
+    };
+    sep.appendChild(releaseBtn);
+
+    const saveAllBtn = document.createElement('button');
+    saveAllBtn.textContent = 'Save'; saveAllBtn.className = 'btn btn-primary';
+    saveAllBtn.style.marginTop = '12px';
+    saveAllBtn.onclick = async () => {
+      saveAllBtn.disabled = true; saveAllBtn.textContent = 'Saving...';
+      state.prompt = promptTa.value.trim();
+      state.vars = {};
+      for (const row of varsContainer.querySelectorAll('[data-var-row]')) {
+        const name = row.querySelector('.var-name').value.trim();
+        const value = row.querySelector('.var-value').value.trim();
+        if (name) state.vars[name] = value;
+      }
+      const trailVal = tInput ? parseInt(tInput.value) : NaN;
+      try {
+        const patches = [
+          fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+            body: JSON.stringify({ content: { type: 'signal', data: JSON.stringify(state) }, max_trail: isNaN(trailVal) ? null : trailVal }),
+          }),
+        ];
+        if (trigger === 'heartbeat') {
+          const v = parseInt(iInput.value);
+          if (v >= 1) patches.push(fetch('/api/signals/set-interval', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+            body: JSON.stringify({ station, interval: v }),
+          }));
         }
-        box.appendChild(section);
-      } catch { /* ignore */ }
-    })();
-  }, fireBtn);
+        const results = await Promise.all(patches);
+        if (results.every(r => r.ok)) {
+          asset.content = { type: 'signal', data: JSON.stringify(state) };
+          if (!isNaN(trailVal)) asset.max_trail = trailVal;
+          renderMarkdown(promptCode, resolvedPrompt());
+          refreshVarSummary();
+          editBtn.style.display = ''; editPanel.style.display = 'none';
+        } else { saveAllBtn.textContent = 'Failed'; }
+      } catch { saveAllBtn.textContent = 'Failed'; }
+      saveAllBtn.disabled = false; saveAllBtn.textContent = 'Save';
+    };
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.className = 'btn btn-ghost';
+    cancelBtn.style.cssText = 'margin-top:12px;margin-left:6px;font-size:11px;';
+    cancelBtn.onclick = () => { editBtn.style.display = ''; editPanel.style.display = 'none'; };
+    editBtn.onclick = () => { editBtn.style.display = 'none'; editPanel.style.display = ''; };
+    editPanel.appendChild(saveAllBtn);
+    editPanel.appendChild(cancelBtn);
+    box.appendChild(editPanel);
+
+    // --- DTO queue ---
+    loadDtoQueue(box, station);
+  });
+}
+
+function loadDtoQueue(box, station) {
+  (async () => {
+    try {
+      const headers = CONFIG.apiKey ? { Authorization: `Bearer ${CONFIG.apiKey}` } : {};
+      const res = await fetch(`${HUB_HTTP_URL}/api/queue/${encodeURIComponent(station)}`, { headers });
+      if (!res.ok) return;
+      const { dtos } = await res.json();
+      if (!dtos || !dtos.length) return;
+
+      const forwardTargets = getTaskTargets();
+      const section = document.createElement('div');
+      section.style.cssText = 'margin-top:12px;border-top:1px solid rgba(255,255,255,0.1);padding-top:10px;';
+      const sectionTitle = document.createElement('div');
+      sectionTitle.style.cssText = 'font-size:11px;color:#aaa;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;';
+      sectionTitle.textContent = `DTO Queue (${dtos.length})`;
+      section.appendChild(sectionTitle);
+
+      for (const dto of dtos) {
+        const card = document.createElement('div');
+        card.style.cssText = 'border:1px solid rgba(255,255,255,0.1);border-left:3px solid #88c0f0;border-radius:6px;padding:8px;margin-bottom:6px;background:rgba(10,20,30,0.4);';
+        const dtoHeader = document.createElement('div');
+        dtoHeader.style.cssText = 'font-size:10px;color:#88c0f0;margin-bottom:6px;font-weight:bold;display:flex;justify-content:space-between;align-items:center;';
+        const dtoLabel = document.createElement('span');
+        dtoLabel.textContent = `DTO ${dto.id} (${dto.type})`;
+        dtoHeader.appendChild(dtoLabel);
+        if (CONFIG.apiKey) {
+          const delBtn = document.createElement('span');
+          delBtn.textContent = '✕';
+          delBtn.style.cssText = 'cursor:pointer;color:#ff6b6b;font-size:14px;padding:0 4px;';
+          delBtn.title = 'Delete DTO';
+          delBtn.onclick = async (e) => {
+            e.stopPropagation();
+            try {
+              const r = await fetch(`${HUB_HTTP_URL}/api/queue/${encodeURIComponent(station)}/${dto.id}`, {
+                method: 'DELETE', headers: { Authorization: `Bearer ${CONFIG.apiKey}` },
+              });
+              if (r.ok) card.remove();
+            } catch {}
+          };
+          dtoHeader.appendChild(delBtn);
+        }
+        card.appendChild(dtoHeader);
+        for (const entry of [...dto.trail].reverse()) {
+          const line = document.createElement('div');
+          line.style.cssText = 'border-left:2px solid rgba(136,192,240,0.3);padding-left:8px;margin-bottom:6px;';
+          const label = document.createElement('div');
+          label.style.cssText = 'color:#88c0f0;font-weight:bold;font-size:10px;margin-bottom:3px;';
+          const ts = entry.at ? new Date(entry.at).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : '';
+          label.textContent = `${entry.station} (${entry.by})${ts ? ' · ' + ts : ''}`;
+          line.appendChild(label);
+          const text = document.createElement('div');
+          text.style.cssText = 'font-size:12px;color:#ccc;word-break:break-word;';
+          if (/<[a-z][\s\S]*>/i.test(entry.data)) {
+            text.innerHTML = sanitizeHTML(entry.data);
+          } else {
+            text.textContent = entry.data;
+          }
+          line.appendChild(text);
+          card.appendChild(line);
+        }
+        buildDtoActions(card, dto, station, { targets: forwardTargets });
+        section.appendChild(card);
+      }
+      box.appendChild(section);
+    } catch { /* ignore */ }
+  })();
 }
 
 function showPayloadWarning() {
@@ -2925,600 +3975,43 @@ async function showActivityLog(asset) {
   showModal('📋 Activity Log', content, true, setup);
 }
 
-function showSign(asset) {
-  const title = '🪧 ' + (asset.name || 'Sign');
-  showModal(title, '', false, null, null, null, (box) => {
-    const contentEl = box.querySelector('.modal-content');
-    if (contentEl) contentEl.remove();
-
-    // Display text info
-    const textRow = document.createElement('div');
-    textRow.style.cssText = 'display:flex;gap:8px;font-size:12px;align-items:center;';
-    const textLabel = document.createElement('span');
-    textLabel.className = 'text-muted'; textLabel.textContent = 'Text:';
-    const textVal = document.createElement('span');
-    textVal.style.color = asset.floating_color || '#ffffff';
-    textVal.textContent = asset.floating_text || '—';
-    textRow.appendChild(textLabel); textRow.appendChild(textVal);
-    box.appendChild(textRow);
-
-    if (!CONFIG.apiKey) return;
-
-    const editBtn = document.createElement('button');
-    editBtn.textContent = 'Edit'; editBtn.className = 'btn btn-ghost'; editBtn.style.marginTop = '8px';
-
-    const editPanel = document.createElement('div');
-    editPanel.style.cssText = 'display:none;flex-direction:column;gap:6px;margin-top:8px;';
-
-    const textInp = document.createElement('input'); textInp.type = 'text';
-    textInp.value = asset.floating_text || ''; textInp.placeholder = 'Display text';
-    textInp.style.cssText = 'font-size:12px;padding:4px 6px;';
-
-    const colorRow = document.createElement('div');
-    colorRow.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:12px;';
-    const colorLabel = document.createElement('span'); colorLabel.className = 'text-muted'; colorLabel.textContent = 'Color';
-    const colorInp = document.createElement('input'); colorInp.type = 'color';
-    colorInp.value = asset.floating_color || '#ffffff';
-    colorRow.appendChild(colorLabel); colorRow.appendChild(colorInp);
-
-    const bobLabel = document.createElement('label');
-    bobLabel.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;';
-    const bobChk = document.createElement('input'); bobChk.type = 'checkbox';
-    bobChk.checked = asset.floating_bob !== false;
-    bobLabel.appendChild(bobChk); bobLabel.appendChild(document.createTextNode('Bob animation'));
-
-    const offsetRow = document.createElement('div');
-    offsetRow.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:11px;';
-    const oxWrap = document.createElement('label'); oxWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
-    oxWrap.textContent = 'X ';
-    const oxInp = document.createElement('input'); oxInp.type = 'number'; oxInp.value = asset.floating_ox || 0;
-    oxInp.style.cssText = 'width:50px;font-size:11px;padding:2px 4px;';
-    oxWrap.appendChild(oxInp);
-    const oyWrap = document.createElement('label'); oyWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
-    oyWrap.textContent = 'Y ';
-    const oyInp = document.createElement('input'); oyInp.type = 'number'; oyInp.value = asset.floating_oy || 0;
-    oyInp.style.cssText = 'width:50px;font-size:11px;padding:2px 4px;';
-    oyWrap.appendChild(oyInp);
-    offsetRow.appendChild(oxWrap); offsetRow.appendChild(oyWrap);
-
-    const saveBtn = document.createElement('button'); saveBtn.textContent = 'Save';
-    saveBtn.className = 'btn btn-accent';
-    saveBtn.onclick = async () => {
-      const text = textInp.value.trim();
-      const patch = {};
-      if (text) {
-        patch.floating_text = text; patch.floating_color = colorInp.value;
-        patch.floating_bob = bobChk.checked;
-        const ox = parseInt(oxInp.value) || 0; const oy = parseInt(oyInp.value) || 0;
-        if (ox) patch.floating_ox = ox; if (oy) patch.floating_oy = oy;
-      } else { patch.floating_text = null; }
-      try {
-        const res = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
-          body: JSON.stringify(patch),
-        });
-        if (res.ok) {
-          if (text) {
-            asset.floating_text = text; asset.floating_color = colorInp.value;
-            asset.floating_bob = bobChk.checked;
-            asset.floating_ox = parseInt(oxInp.value) || 0; asset.floating_oy = parseInt(oyInp.value) || 0;
-          } else {
-            delete asset.floating_text; delete asset.floating_color;
-            delete asset.floating_bob; delete asset.floating_ox; delete asset.floating_oy;
-          }
-          textVal.textContent = asset.floating_text || '—';
-          textVal.style.color = asset.floating_color || '#ffffff';
-          saveBtn.textContent = '✓ Saved'; setTimeout(() => saveBtn.textContent = 'Save', 2000);
-        }
-      } catch {}
-    };
-
-    editPanel.appendChild(textInp); editPanel.appendChild(colorRow);
-    editPanel.appendChild(bobLabel); editPanel.appendChild(offsetRow); editPanel.appendChild(saveBtn);
-
-    editBtn.onclick = () => {
-      const show = editPanel.style.display === 'none';
-      editPanel.style.display = show ? 'flex' : 'none';
-      editBtn.textContent = show ? 'Cancel' : 'Edit';
-    };
-    box.appendChild(editBtn); box.appendChild(editPanel);
-  });
-}
-
-function appendFloatingTextUI(box, asset) {
-  if (!asset.floating_text && !CONFIG.apiKey) return;
-  const sep = document.createElement('div');
-  sep.style.cssText = 'border-top:1px solid rgba(255,255,255,0.08);margin:8px 0;';
-  box.appendChild(sep);
-
+function buildAccessControl(asset, container) {
+  if (!CONFIG.apiKey || !asset?.id) return;
   const row = document.createElement('div');
-  row.style.cssText = 'display:flex;gap:8px;font-size:12px;align-items:center;';
+  row.className = 'settings-row';
   const label = document.createElement('span');
-  label.className = 'text-muted'; label.style.flexShrink = '0'; label.textContent = 'Display Text:';
-  const val = document.createElement('span');
-  val.textContent = asset.floating_text || '—';
-  row.appendChild(label); row.appendChild(val);
-  box.appendChild(row);
-
-  if (!CONFIG.apiKey) return;
-
-  const editBtn = document.createElement('button');
-  editBtn.textContent = 'Edit Display Text'; editBtn.className = 'btn btn-ghost';
-  editBtn.style.marginTop = '4px';
-
-  const editPanel = document.createElement('div');
-  editPanel.style.cssText = 'display:none;flex-direction:column;gap:6px;margin-top:6px;';
-
-  const textInp = document.createElement('input'); textInp.type = 'text';
-  textInp.value = asset.floating_text || ''; textInp.placeholder = 'Display text (empty to remove)';
-  textInp.style.cssText = 'font-size:12px;padding:4px 6px;';
-
-  const colorRow = document.createElement('div');
-  colorRow.style.cssText = 'display:flex;gap:8px;align-items:center;';
-  const colorLabel = document.createElement('span'); colorLabel.className = 'text-muted'; colorLabel.textContent = 'Color';
-  const colorInp = document.createElement('input'); colorInp.type = 'color';
-  colorInp.value = asset.floating_color || '#ffffff';
-  colorRow.appendChild(colorLabel); colorRow.appendChild(colorInp);
-
-  const bobLabel = document.createElement('label');
-  bobLabel.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;';
-  const bobChk = document.createElement('input'); bobChk.type = 'checkbox';
-  bobChk.checked = asset.floating_bob !== false;
-  bobLabel.appendChild(bobChk); bobLabel.appendChild(document.createTextNode('Bob animation'));
-
-  const offsetRow = document.createElement('div');
-  offsetRow.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:11px;';
-  const oxLabel = document.createElement('label'); oxLabel.style.cssText = 'display:flex;align-items:center;gap:4px;';
-  oxLabel.textContent = 'X ';
-  const oxInp = document.createElement('input'); oxInp.type = 'number'; oxInp.value = asset.floating_ox || 0;
-  oxInp.style.cssText = 'width:50px;font-size:11px;padding:2px 4px;';
-  oxLabel.appendChild(oxInp);
-  const oyLabel = document.createElement('label'); oyLabel.style.cssText = 'display:flex;align-items:center;gap:4px;';
-  oyLabel.textContent = 'Y ';
-  const oyInp = document.createElement('input'); oyInp.type = 'number'; oyInp.value = asset.floating_oy || 0;
-  oyInp.style.cssText = 'width:50px;font-size:11px;padding:2px 4px;';
-  oyLabel.appendChild(oyInp);
-  offsetRow.appendChild(oxLabel); offsetRow.appendChild(oyLabel);
-
-  const saveBtn = document.createElement('button'); saveBtn.textContent = 'Save';
-  saveBtn.className = 'btn btn-accent';
-  saveBtn.onclick = async () => {
-    const text = textInp.value.trim();
-    const patch = {};
-    if (text) {
-      patch.floating_text = text;
-      patch.floating_color = colorInp.value;
-      patch.floating_bob = bobChk.checked;
-      const ox = parseInt(oxInp.value) || 0;
-      const oy = parseInt(oyInp.value) || 0;
-      if (ox) patch.floating_ox = ox;
-      if (oy) patch.floating_oy = oy;
-    } else {
-      patch.floating_text = null;
-    }
+  label.className = 'text-label';
+  label.textContent = 'Access:';
+  const select = document.createElement('select');
+  select.className = 'form-input-sm';
+  for (const opt of ['private', 'read', 'public']) {
+    const o = document.createElement('option');
+    o.value = opt; o.textContent = opt;
+    if ((asset.access || 'private') === opt) o.selected = true;
+    select.appendChild(o);
+  }
+  const status = document.createElement('span');
+  status.className = 'text-status';
+  select.onchange = async () => {
     try {
-      const res = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...(CONFIG.apiKey ? { Authorization: `Bearer ${CONFIG.apiKey}` } : {}) },
-        body: JSON.stringify(patch),
+      const res = await fetch(`${HUB_HTTP_URL}/api/assets/${asset.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+        body: JSON.stringify({ access: select.value }),
       });
       if (res.ok) {
-        if (text) {
-          asset.floating_text = text; asset.floating_color = colorInp.value;
-          asset.floating_bob = bobChk.checked;
-          asset.floating_ox = parseInt(oxInp.value) || 0;
-          asset.floating_oy = parseInt(oyInp.value) || 0;
-        } else {
-          delete asset.floating_text; delete asset.floating_color;
-          delete asset.floating_bob; delete asset.floating_ox; delete asset.floating_oy;
-        }
-        val.textContent = asset.floating_text || '—';
-        saveBtn.textContent = '✓ Saved'; setTimeout(() => saveBtn.textContent = 'Save', 2000);
+        asset.access = select.value;
+        status.textContent = '✓'; status.style.color = '#60d060';
+      } else {
+        status.textContent = '✗'; status.style.color = '#d04040';
       }
-    } catch {}
+    } catch { status.textContent = '✗'; status.style.color = '#d04040'; }
+    setTimeout(() => status.textContent = '', 2000);
   };
-
-  editPanel.appendChild(textInp); editPanel.appendChild(colorRow);
-  editPanel.appendChild(bobLabel); editPanel.appendChild(offsetRow); editPanel.appendChild(saveBtn);
-
-  editBtn.onclick = () => {
-    const show = editPanel.style.display === 'none';
-    editPanel.style.display = show ? 'flex' : 'none';
-    editBtn.textContent = show ? 'Cancel' : 'Edit Display Text';
-  };
-
-  box.appendChild(editBtn); box.appendChild(editPanel);
-}
-
-function showKnowledge(asset) {
-  const title = '📖 ' + (asset.name || asset.station || 'Knowledge');
-  showModal(title, '', true, null, null, null, async (box) => {
-    const contentEl = box.querySelector('.modal-content');
-    if (contentEl) contentEl.remove();
-
-    let state = { text: '', prompt: '', vars: {} };
-    try { if (asset.content?.data) state = { vars: {}, ...JSON.parse(asset.content.data) }; } catch {}
-
-    const isAuthed = !!CONFIG.apiKey;
-
-    function detectVars(text) {
-      const matches = [...(text || '').matchAll(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g)];
-      return [...new Set(matches.map(m => m[1]))].sort();
-    }
-
-    function applyVars(text, vars) {
-      return (text || '').replace(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g, (_, n) => vars[n] || `{{${n}}}`);
-    }
-
-    function resolvedPrompt() {
-      return applyVars(state.prompt, state.vars);
-    }
-
-    // --- Display panel ---
-    const displayPanel = document.createElement('div');
-    displayPanel.className = 'section-mb';
-
-    function makeRow(label, value) {
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;gap:8px;margin-bottom:3px;font-size:12px;';
-      const l = document.createElement('span');
-      l.className = 'text-muted';
-      l.style.flexShrink = '0';
-      l.textContent = label + ':';
-      const v = document.createElement('span');
-      v.textContent = value;
-      row.appendChild(l); row.appendChild(v);
-      return row;
-    }
-
-    // Info section
-    const descRow = makeRow('Description', state.text || '—');
-    displayPanel.appendChild(descRow);
-
-    const varSummaryEl = document.createElement('div');
-    function refreshVarSummary() {
-      varSummaryEl.innerHTML = '';
-      const keys = [...new Set([...detectVars(state.prompt), ...Object.keys(state.vars || {})])].sort();
-      for (const k of keys) {
-        varSummaryEl.appendChild(makeRow(k, state.vars[k] || '—'));
-      }
-    }
-    refreshVarSummary();
-    displayPanel.appendChild(varSummaryEl);
-
-    // Prompt to copy
-    const copyRow = document.createElement('div');
-    copyRow.className = 'settings-row';
-    copyRow.style.marginTop = '10px';
-    const promptCode = document.createElement('code');
-    promptCode.className = 'text-info';
-    promptCode.style.cssText = 'flex:1;word-break:break-word;font-size:11px;';
-    promptCode.textContent = resolvedPrompt() || '(no prompt set)';
-    const copyBtn = document.createElement('button');
-    copyBtn.textContent = 'Copy';
-    copyBtn.className = 'btn btn-accent';
-    copyBtn.onclick = () => {
-      navigator.clipboard.writeText(resolvedPrompt() || '').then(() => {
-        copyBtn.textContent = '✓ Copied';
-        setTimeout(() => copyBtn.textContent = 'Copy', 2000);
-      });
-    };
-    copyRow.appendChild(promptCode);
-    copyRow.appendChild(copyBtn);
-    displayPanel.appendChild(copyRow);
-    box.appendChild(displayPanel);
-
-    if (!isAuthed) return;
-
-    const editBtn = document.createElement('button');
-    editBtn.textContent = 'Edit';
-    editBtn.className = 'btn btn-ghost';
-    editBtn.style.cssText = 'margin-top:6px;font-size:11px;padding:2px 8px;opacity:0.6;';
-    displayPanel.appendChild(editBtn);
-
-    // --- Edit panel ---
-    const editPanel = document.createElement('div');
-    editPanel.style.display = 'none';
-
-    const descLabel = document.createElement('div');
-    descLabel.className = 'text-muted';
-    descLabel.style.cssText = 'font-size:11px;margin-bottom:3px;';
-    descLabel.textContent = 'Description';
-    const descTa = document.createElement('textarea');
-    descTa.value = state.text;
-    descTa.rows = 2;
-    descTa.className = 'form-textarea';
-    editPanel.appendChild(descLabel);
-    editPanel.appendChild(descTa);
-
-    const ptLabel = document.createElement('div');
-    ptLabel.className = 'text-muted';
-    ptLabel.style.cssText = 'font-size:11px;margin-top:8px;margin-bottom:3px;';
-    ptLabel.textContent = 'Agent prompt (use {{var1}}, {{name}}, … as placeholders)';
-    const promptTa = document.createElement('textarea');
-    promptTa.value = state.prompt;
-    promptTa.rows = 6;
-    promptTa.className = 'form-textarea';
-    promptTa.style.fontFamily = 'monospace';
-    editPanel.appendChild(ptLabel);
-    editPanel.appendChild(promptTa);
-
-    // Variables section
-    const varsHeader = document.createElement('div');
-    varsHeader.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:10px;margin-bottom:4px;';
-    const varsLabel = document.createElement('span');
-    varsLabel.className = 'text-muted';
-    varsLabel.style.cssText = 'font-size:11px;flex:1;';
-    varsLabel.textContent = 'Variables — reference as {{name}} in the prompt above';
-    const addVarBtn = document.createElement('button');
-    addVarBtn.textContent = '+ Add variable';
-    addVarBtn.className = 'btn btn-ghost';
-    addVarBtn.style.cssText = 'font-size:10px;padding:2px 6px;';
-    varsHeader.appendChild(varsLabel);
-    varsHeader.appendChild(addVarBtn);
-    editPanel.appendChild(varsHeader);
-
-    const varsContainer = document.createElement('div');
-    varsContainer.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
-    editPanel.appendChild(varsContainer);
-
-    function makeVarRow(name, value) {
-      const row = document.createElement('div');
-      row.dataset.varRow = '1';
-      row.style.cssText = 'display:flex;align-items:center;gap:6px;';
-
-      const nameInp = document.createElement('input');
-      nameInp.type = 'text';
-      nameInp.className = 'form-input-sm var-name';
-      nameInp.style.cssText = 'width:90px;flex-shrink:0;font-family:monospace;font-size:11px;';
-      nameInp.placeholder = 'name';
-      nameInp.value = name;
-      nameInp.dataset.lastName = name;
-
-      const eq = document.createElement('span');
-      eq.className = 'text-muted';
-      eq.style.cssText = 'font-size:11px;flex-shrink:0;';
-      eq.textContent = '=';
-
-      const valInp = document.createElement('input');
-      valInp.type = 'text';
-      valInp.className = 'form-input-sm var-value';
-      valInp.style.flex = '1';
-      valInp.placeholder = 'value';
-      valInp.value = value;
-
-      const removeBtn = document.createElement('button');
-      removeBtn.textContent = '×';
-      removeBtn.className = 'btn btn-ghost';
-      removeBtn.style.cssText = 'padding:1px 5px;font-size:13px;flex-shrink:0;';
-      removeBtn.onclick = () => row.remove();
-
-      nameInp.addEventListener('change', () => {
-        const oldName = nameInp.dataset.lastName;
-        const newName = nameInp.value.trim();
-        if (oldName && newName && oldName !== newName) {
-          promptTa.value = promptTa.value.replace(
-            new RegExp(`\\{\\{${oldName}\\}\\}`, 'g'), `{{${newName}}}`
-          );
-        }
-        nameInp.dataset.lastName = newName;
-      });
-
-      row.appendChild(nameInp);
-      row.appendChild(eq);
-      row.appendChild(valInp);
-      row.appendChild(removeBtn);
-      return row;
-    }
-
-    function existingVarNames() {
-      return new Set([...varsContainer.querySelectorAll('.var-name')].map(n => n.value.trim()));
-    }
-
-    function refreshVarInputs() {
-      for (const k of detectVars(promptTa.value)) {
-        if (!existingVarNames().has(k)) varsContainer.appendChild(makeVarRow(k, state.vars[k] || ''));
-      }
-    }
-
-    addVarBtn.onclick = () => {
-      const existing = existingVarNames();
-      let n = 1;
-      while (existing.has('var' + n)) n++;
-      const row = makeVarRow('var' + n, '');
-      varsContainer.appendChild(row);
-      row.querySelector('.var-name').focus();
-    };
-
-    for (const [k, v] of Object.entries(state.vars || {})) varsContainer.appendChild(makeVarRow(k, v));
-    refreshVarInputs();
-    promptTa.addEventListener('input', refreshVarInputs);
-
-    const saveBtn = document.createElement('button');
-    saveBtn.textContent = 'Save';
-    saveBtn.className = 'btn btn-primary';
-    saveBtn.style.marginTop = '8px';
-    const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = 'Cancel';
-    cancelBtn.className = 'btn btn-ghost';
-    cancelBtn.style.cssText = 'margin-top:8px;margin-left:6px;';
-    editPanel.appendChild(document.createElement('br'));
-    editPanel.appendChild(saveBtn);
-    editPanel.appendChild(cancelBtn);
-
-    editBtn.onclick = () => { displayPanel.style.display = 'none'; editPanel.style.display = ''; descTa.focus(); };
-    cancelBtn.onclick = () => { displayPanel.style.display = ''; editPanel.style.display = 'none'; };
-    saveBtn.onclick = async () => {
-      saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
-      state.text = descTa.value.trim();
-      state.prompt = promptTa.value.trim();
-      state.vars = {};
-      for (const row of varsContainer.querySelectorAll('[data-var-row]')) {
-        const name = row.querySelector('.var-name').value.trim();
-        const value = row.querySelector('.var-value').value.trim();
-        if (name) state.vars[name] = value;
-      }
-      try {
-        const res = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
-          body: JSON.stringify({ content: { type: 'knowledge', data: JSON.stringify(state) } }),
-        });
-        if (res.ok) {
-          asset.content = { type: 'knowledge', data: JSON.stringify(state) };
-          descRow.querySelector('span:last-child').textContent = state.text || '—';
-          promptCode.textContent = resolvedPrompt() || '(no prompt set)';
-          refreshVarSummary();
-          displayPanel.style.display = '';
-          editPanel.style.display = 'none';
-        } else { saveBtn.textContent = 'Failed'; }
-      } catch { saveBtn.textContent = 'Failed'; }
-      saveBtn.disabled = false;
-      saveBtn.textContent = 'Save';
-    };
-
-    box.appendChild(editPanel);
-    appendFloatingTextUI(box, asset);
-  });
-}
-
-function showDownloads(asset) {
-  const title = '📦 ' + (asset.name || asset.station || asset.download_folder || 'Downloads');
-  showModal(title, 'Loading...', true, null, null, null, async (box) => {
-    const contentEl = box.querySelector('.modal-content');
-
-    if (contentEl) contentEl.remove();
-
-    const folderRow = document.createElement('div');
-    folderRow.className = 'settings-row';
-    folderRow.style.marginBottom = '10px';
-
-    const folderLabel = document.createElement('span');
-    folderLabel.className = 'text-label';
-    folderLabel.textContent = 'Folder:';
-
-    const folderVal = document.createElement('span');
-    folderVal.className = 'text-muted';
-    folderVal.style.fontFamily = 'monospace';
-    folderVal.textContent = asset.download_folder;
-
-    folderRow.appendChild(folderLabel);
-    folderRow.appendChild(folderVal);
-
-    if (CONFIG.apiKey) {
-      const editBtn = document.createElement('button');
-      editBtn.textContent = 'Edit';
-      editBtn.className = 'btn btn-accent';
-      editBtn.style.cssText = 'margin-left:auto;font-size:11px;padding:2px 8px;';
-
-      const editPanel = document.createElement('div');
-      editPanel.style.cssText = 'display:none;margin-top:8px;';
-      const input = document.createElement('input');
-      input.type = 'text';
-      input.value = asset.download_folder;
-      input.className = 'form-input-sm';
-      input.style.cssText = 'width:100%;font-family:monospace;margin-bottom:6px;';
-      const btnRow = document.createElement('div');
-      btnRow.style.cssText = 'display:flex;gap:6px;';
-      const saveBtn = document.createElement('button');
-      saveBtn.textContent = 'Save';
-      saveBtn.className = 'btn btn-accent';
-      const cancelBtn = document.createElement('button');
-      cancelBtn.textContent = 'Cancel';
-      cancelBtn.className = 'btn';
-      btnRow.appendChild(saveBtn);
-      btnRow.appendChild(cancelBtn);
-      editPanel.appendChild(input);
-      editPanel.appendChild(btnRow);
-
-      editBtn.onclick = () => { editPanel.style.display = ''; editBtn.style.display = 'none'; };
-      cancelBtn.onclick = () => { editPanel.style.display = 'none'; editBtn.style.display = ''; };
-      saveBtn.onclick = async () => {
-        const newFolder = input.value.trim();
-        if (!newFolder || !/^[a-zA-Z0-9_-]+$/.test(newFolder)) {
-          saveBtn.textContent = 'Invalid name';
-          setTimeout(() => saveBtn.textContent = 'Save', 2000);
-          return;
-        }
-        saveBtn.disabled = true;
-        try {
-          const r = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
-            method: 'PATCH',
-            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
-            body: JSON.stringify({ download_folder: newFolder }),
-          });
-          if (r.ok) {
-            asset.download_folder = newFolder;
-            folderVal.textContent = newFolder;
-            editPanel.style.display = 'none';
-            editBtn.style.display = '';
-            loadFiles();
-          } else { saveBtn.textContent = 'Failed'; }
-        } catch { saveBtn.textContent = 'Failed'; }
-        saveBtn.disabled = false;
-        saveBtn.textContent = 'Save';
-      };
-
-      folderRow.appendChild(editBtn);
-      box.appendChild(folderRow);
-      box.appendChild(editPanel);
-    } else {
-      box.appendChild(folderRow);
-    }
-
-    const listContainer = document.createElement('div');
-    box.appendChild(listContainer);
-
-    async function loadFiles() {
-      listContainer.innerHTML = '';
-      try {
-        const res = await fetch(`${HUB_HTTP_URL}/api/downloads/${encodeURIComponent(asset.download_folder)}`);
-        if (!res.ok) { listContainer.textContent = 'Folder not found.'; return; }
-        const { files } = await res.json();
-
-        if (!files || files.length === 0) {
-          const empty = document.createElement('div');
-          empty.style.cssText = 'color:#aaa;font-size:13px;padding:8px 0;';
-          empty.textContent = 'No files available for download.';
-          listContainer.appendChild(empty);
-          return;
-        }
-
-        const list = document.createElement('div');
-        list.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
-        for (const file of files) {
-          const row = document.createElement('div');
-          row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 12px;background:rgba(0,0,0,0.2);gap:12px;';
-          const nameEl = document.createElement('span');
-          nameEl.style.cssText = 'font-size:13px;color:#e0d8c0;word-break:break-all;';
-          nameEl.textContent = file.name;
-          const right = document.createElement('div');
-          right.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0;';
-          if (file.size != null) {
-            const sizeEl = document.createElement('span');
-            sizeEl.style.cssText = 'font-size:11px;color:#888;';
-            sizeEl.textContent = file.size < 1024 ? `${file.size} B`
-              : file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB`
-              : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
-            right.appendChild(sizeEl);
-          }
-          const a = document.createElement('a');
-          a.href = `${HUB_HTTP_URL}/api/downloads/${encodeURIComponent(asset.download_folder)}/${encodeURIComponent(file.name)}`;
-          a.download = file.name;
-          a.textContent = '⬇ Download';
-          a.className = 'btn btn-accent';
-          a.style.cssText = 'text-decoration:none;font-size:12px;padding:4px 10px;';
-          right.appendChild(a);
-          row.appendChild(nameEl);
-          row.appendChild(right);
-          list.appendChild(row);
-        }
-        listContainer.appendChild(list);
-      } catch { listContainer.textContent = 'Failed to load downloads.'; }
-    }
-
-    loadFiles();
-  });
+  row.appendChild(label);
+  row.appendChild(select);
+  row.appendChild(status);
+  container.appendChild(row);
 }
 
 function buildSeatFilter(asset, container) {
@@ -3549,7 +4042,7 @@ function buildSeatFilter(asset, container) {
   const selected = new Set(filter);
   const knownNames = new Set();
   for (const [, data] of agents) { if (data.agent_name) knownNames.add(data.agent_name); }
-  for (const n of filter) knownNames.add(n);
+  for (const n of filter) knownNames.add(n); // include previously saved names even if offline
 
   const chipsWrap = document.createElement('div');
   chipsWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
@@ -3562,9 +4055,21 @@ function buildSeatFilter(asset, container) {
       chip.textContent = name;
       chip.className = 'btn';
       chip.style.cssText = `font-size:11px;padding:2px 8px;border-radius:12px;${active ? 'background:#5a8fff;color:#fff;border-color:#5a8fff;' : 'background:transparent;color:#aaa;border:1px solid #555;'}`;
-      chip.onclick = () => {
+      chip.onclick = async () => {
         if (selected.has(name)) selected.delete(name); else selected.add(name);
         renderChips();
+        const names = [...selected];
+        try {
+          const res = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+            body: JSON.stringify({ seat_filter: names.length ? names : null }),
+          });
+          if (res.ok) {
+            if (names.length) asset.seat_filter = names; else delete asset.seat_filter;
+            val.textContent = names.length ? names.join(', ') : 'everyone';
+          }
+        } catch {}
       };
       chipsWrap.appendChild(chip);
     }
@@ -3577,26 +4082,7 @@ function buildSeatFilter(asset, container) {
   }
   renderChips();
 
-  const saveBtn = document.createElement('button'); saveBtn.textContent = 'Save';
-  saveBtn.className = 'btn btn-accent';
-  saveBtn.onclick = async () => {
-    const names = [...selected];
-    try {
-      const res = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
-        body: JSON.stringify({ seat_filter: names.length ? names : null }),
-      });
-      if (res.ok) {
-        if (names.length) asset.seat_filter = names; else delete asset.seat_filter;
-        val.textContent = names.length ? names.join(', ') : 'everyone';
-        saveBtn.textContent = '✓ Saved'; setTimeout(() => saveBtn.textContent = 'Save', 2000);
-      }
-    } catch {}
-  };
-
   editPanel.appendChild(chipsWrap);
-  editPanel.appendChild(saveBtn);
 
   editBtn.onclick = () => {
     const show = editPanel.style.display === 'none';
