@@ -229,7 +229,10 @@ function getTargetPosition(agentId, data) {
   if (!allStations.length) return fallback;
 
   const behavior = furnitureBehaviors[state];
-  const result = resolveStation(agentId, state, allStations, stationOccupants, behavior, { x: 0, y: 0 });
+  const agentName = data.agent_name || agentId;
+  const char = characters.get(agentId);
+  const agentPos = char ? { x: char.x, y: char.y } : null;
+  const result = resolveStation(agentId, state, allStations, stationOccupants, behavior, { x: 0, y: 0 }, agentName, agentPos);
 
   return result || fallback;
 }
@@ -571,8 +574,31 @@ function drawFloatingIcon(cx, topY, icon, count, badgeColor) {
   ctx.restore();
 }
 
+function drawFloatingText(cx, topY, text, color, bob, ox, oy) {
+  const offsetY = bob ? Math.sin(animTime * 2.5) * 2 : 0;
+  const y = topY - 2 + offsetY + (oy || 0);
+  cx += (ox || 0);
+  ctx.save();
+  ctx.font = 'bold 7px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.shadowColor = 'rgba(0,0,0,0.8)';
+  ctx.shadowBlur = 3;
+  ctx.fillStyle = color || '#ffffff';
+  ctx.fillText(text, cx, y);
+  ctx.restore();
+}
+
 function drawAssetIndicators(asset, propX, propY) {
   if (!asset.position) return;
+  // Floating text — renders on top of any asset type
+  if (asset.floating_text) {
+    const w = asset.width || 1;
+    const px = propX + asset.position.x * TILE_SIZE;
+    const py = propY + asset.position.y * TILE_SIZE;
+    const pw = w * TILE_SIZE;
+    drawFloatingText(px + pw / 2, py, asset.floating_text, asset.floating_color, asset.floating_bob, asset.floating_ox, asset.floating_oy);
+  }
   const w = asset.width || 1;
   const h = asset.height || 1;
   const px = propX + asset.position.x * TILE_SIZE;
@@ -1230,14 +1256,24 @@ async function handleCanvasClick(e) {
     showWelcomeBoard(asset);
   } else if (asset.archive) {
     showArchive(asset);
+  } else if (asset.knowledge) {
+    showKnowledge(asset);
+  } else if (asset.download_folder) {
+    showDownloads(asset);
   } else if (asset.station === 'inbox') {
     showInboxMessages(asset);
   } else if (asset.station) {
     showStationInfo(asset);
+  } else if (asset.sign) {
+    showSign(asset);
   } else if (asset.sprite?.image) {
     showImageLightbox(asset);
   } else if (!asset.layer) {
-    showModal(asset.name || 'Furniture', 'A piece of furniture on the property.');
+    showModal(asset.name || 'Furniture', '', false, null, null, null, (box) => {
+      const contentEl = box.querySelector('.modal-content');
+      if (contentEl) contentEl.remove();
+      appendFloatingTextUI(box, asset);
+    });
   }
 }
 
@@ -2129,6 +2165,8 @@ function showReception(asset) {
     box.appendChild(again);
   }
 
+  buildSeatFilter(asset, box);
+
   modal.appendChild(box);
   const openedAt = Date.now();
   modal.addEventListener('click', (e) => {
@@ -2460,6 +2498,9 @@ function showTask(asset) {
     box.appendChild(acceptBtn);
   }
 
+  buildSeatFilter(asset, box);
+  appendFloatingTextUI(box, asset);
+
   modal.appendChild(box);
   const openedAt = Date.now();
   modal.addEventListener('click', (e) => {
@@ -2615,7 +2656,9 @@ function showStationInfo(asset) {
     '• Name stations after verbs (reading, planning)\n' +
     '  so the village feels alive.';
 
-  showModal(`${icon} ${station.replace(/_/g, ' ')}`, text, true, setup);
+  showModal(`${icon} ${station.replace(/_/g, ' ')}`, text, true, setup, null, null, (box) => {
+    buildSeatFilter(asset, box);
+  });
 }
 
 function showSignalInfo(asset) {
@@ -2693,6 +2736,12 @@ function showSignalInfo(asset) {
     } else {
       box.appendChild(promptWrap);
     }
+
+    // Seat filter + separator
+    const signalSep = document.createElement('div');
+    signalSep.style.cssText = 'margin-top:12px;border-top:1px solid rgba(255,255,255,0.1);padding-top:10px;';
+    buildSeatFilter(asset, signalSep);
+    box.appendChild(signalSep);
 
     // Async: load DTO queue for this station
     (async () => {
@@ -2874,6 +2923,688 @@ async function showActivityLog(asset) {
   setup += '  server restart.';
 
   showModal('📋 Activity Log', content, true, setup);
+}
+
+function showSign(asset) {
+  const title = '🪧 ' + (asset.name || 'Sign');
+  showModal(title, '', false, null, null, null, (box) => {
+    const contentEl = box.querySelector('.modal-content');
+    if (contentEl) contentEl.remove();
+
+    // Display text info
+    const textRow = document.createElement('div');
+    textRow.style.cssText = 'display:flex;gap:8px;font-size:12px;align-items:center;';
+    const textLabel = document.createElement('span');
+    textLabel.className = 'text-muted'; textLabel.textContent = 'Text:';
+    const textVal = document.createElement('span');
+    textVal.style.color = asset.floating_color || '#ffffff';
+    textVal.textContent = asset.floating_text || '—';
+    textRow.appendChild(textLabel); textRow.appendChild(textVal);
+    box.appendChild(textRow);
+
+    if (!CONFIG.apiKey) return;
+
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'Edit'; editBtn.className = 'btn btn-ghost'; editBtn.style.marginTop = '8px';
+
+    const editPanel = document.createElement('div');
+    editPanel.style.cssText = 'display:none;flex-direction:column;gap:6px;margin-top:8px;';
+
+    const textInp = document.createElement('input'); textInp.type = 'text';
+    textInp.value = asset.floating_text || ''; textInp.placeholder = 'Display text';
+    textInp.style.cssText = 'font-size:12px;padding:4px 6px;';
+
+    const colorRow = document.createElement('div');
+    colorRow.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:12px;';
+    const colorLabel = document.createElement('span'); colorLabel.className = 'text-muted'; colorLabel.textContent = 'Color';
+    const colorInp = document.createElement('input'); colorInp.type = 'color';
+    colorInp.value = asset.floating_color || '#ffffff';
+    colorRow.appendChild(colorLabel); colorRow.appendChild(colorInp);
+
+    const bobLabel = document.createElement('label');
+    bobLabel.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;';
+    const bobChk = document.createElement('input'); bobChk.type = 'checkbox';
+    bobChk.checked = asset.floating_bob !== false;
+    bobLabel.appendChild(bobChk); bobLabel.appendChild(document.createTextNode('Bob animation'));
+
+    const offsetRow = document.createElement('div');
+    offsetRow.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:11px;';
+    const oxWrap = document.createElement('label'); oxWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
+    oxWrap.textContent = 'X ';
+    const oxInp = document.createElement('input'); oxInp.type = 'number'; oxInp.value = asset.floating_ox || 0;
+    oxInp.style.cssText = 'width:50px;font-size:11px;padding:2px 4px;';
+    oxWrap.appendChild(oxInp);
+    const oyWrap = document.createElement('label'); oyWrap.style.cssText = 'display:flex;align-items:center;gap:4px;';
+    oyWrap.textContent = 'Y ';
+    const oyInp = document.createElement('input'); oyInp.type = 'number'; oyInp.value = asset.floating_oy || 0;
+    oyInp.style.cssText = 'width:50px;font-size:11px;padding:2px 4px;';
+    oyWrap.appendChild(oyInp);
+    offsetRow.appendChild(oxWrap); offsetRow.appendChild(oyWrap);
+
+    const saveBtn = document.createElement('button'); saveBtn.textContent = 'Save';
+    saveBtn.className = 'btn btn-accent';
+    saveBtn.onclick = async () => {
+      const text = textInp.value.trim();
+      const patch = {};
+      if (text) {
+        patch.floating_text = text; patch.floating_color = colorInp.value;
+        patch.floating_bob = bobChk.checked;
+        const ox = parseInt(oxInp.value) || 0; const oy = parseInt(oyInp.value) || 0;
+        if (ox) patch.floating_ox = ox; if (oy) patch.floating_oy = oy;
+      } else { patch.floating_text = null; }
+      try {
+        const res = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+          body: JSON.stringify(patch),
+        });
+        if (res.ok) {
+          if (text) {
+            asset.floating_text = text; asset.floating_color = colorInp.value;
+            asset.floating_bob = bobChk.checked;
+            asset.floating_ox = parseInt(oxInp.value) || 0; asset.floating_oy = parseInt(oyInp.value) || 0;
+          } else {
+            delete asset.floating_text; delete asset.floating_color;
+            delete asset.floating_bob; delete asset.floating_ox; delete asset.floating_oy;
+          }
+          textVal.textContent = asset.floating_text || '—';
+          textVal.style.color = asset.floating_color || '#ffffff';
+          saveBtn.textContent = '✓ Saved'; setTimeout(() => saveBtn.textContent = 'Save', 2000);
+        }
+      } catch {}
+    };
+
+    editPanel.appendChild(textInp); editPanel.appendChild(colorRow);
+    editPanel.appendChild(bobLabel); editPanel.appendChild(offsetRow); editPanel.appendChild(saveBtn);
+
+    editBtn.onclick = () => {
+      const show = editPanel.style.display === 'none';
+      editPanel.style.display = show ? 'flex' : 'none';
+      editBtn.textContent = show ? 'Cancel' : 'Edit';
+    };
+    box.appendChild(editBtn); box.appendChild(editPanel);
+  });
+}
+
+function appendFloatingTextUI(box, asset) {
+  if (!asset.floating_text && !CONFIG.apiKey) return;
+  const sep = document.createElement('div');
+  sep.style.cssText = 'border-top:1px solid rgba(255,255,255,0.08);margin:8px 0;';
+  box.appendChild(sep);
+
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;font-size:12px;align-items:center;';
+  const label = document.createElement('span');
+  label.className = 'text-muted'; label.style.flexShrink = '0'; label.textContent = 'Display Text:';
+  const val = document.createElement('span');
+  val.textContent = asset.floating_text || '—';
+  row.appendChild(label); row.appendChild(val);
+  box.appendChild(row);
+
+  if (!CONFIG.apiKey) return;
+
+  const editBtn = document.createElement('button');
+  editBtn.textContent = 'Edit Display Text'; editBtn.className = 'btn btn-ghost';
+  editBtn.style.marginTop = '4px';
+
+  const editPanel = document.createElement('div');
+  editPanel.style.cssText = 'display:none;flex-direction:column;gap:6px;margin-top:6px;';
+
+  const textInp = document.createElement('input'); textInp.type = 'text';
+  textInp.value = asset.floating_text || ''; textInp.placeholder = 'Display text (empty to remove)';
+  textInp.style.cssText = 'font-size:12px;padding:4px 6px;';
+
+  const colorRow = document.createElement('div');
+  colorRow.style.cssText = 'display:flex;gap:8px;align-items:center;';
+  const colorLabel = document.createElement('span'); colorLabel.className = 'text-muted'; colorLabel.textContent = 'Color';
+  const colorInp = document.createElement('input'); colorInp.type = 'color';
+  colorInp.value = asset.floating_color || '#ffffff';
+  colorRow.appendChild(colorLabel); colorRow.appendChild(colorInp);
+
+  const bobLabel = document.createElement('label');
+  bobLabel.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;';
+  const bobChk = document.createElement('input'); bobChk.type = 'checkbox';
+  bobChk.checked = asset.floating_bob !== false;
+  bobLabel.appendChild(bobChk); bobLabel.appendChild(document.createTextNode('Bob animation'));
+
+  const offsetRow = document.createElement('div');
+  offsetRow.style.cssText = 'display:flex;gap:8px;align-items:center;font-size:11px;';
+  const oxLabel = document.createElement('label'); oxLabel.style.cssText = 'display:flex;align-items:center;gap:4px;';
+  oxLabel.textContent = 'X ';
+  const oxInp = document.createElement('input'); oxInp.type = 'number'; oxInp.value = asset.floating_ox || 0;
+  oxInp.style.cssText = 'width:50px;font-size:11px;padding:2px 4px;';
+  oxLabel.appendChild(oxInp);
+  const oyLabel = document.createElement('label'); oyLabel.style.cssText = 'display:flex;align-items:center;gap:4px;';
+  oyLabel.textContent = 'Y ';
+  const oyInp = document.createElement('input'); oyInp.type = 'number'; oyInp.value = asset.floating_oy || 0;
+  oyInp.style.cssText = 'width:50px;font-size:11px;padding:2px 4px;';
+  oyLabel.appendChild(oyInp);
+  offsetRow.appendChild(oxLabel); offsetRow.appendChild(oyLabel);
+
+  const saveBtn = document.createElement('button'); saveBtn.textContent = 'Save';
+  saveBtn.className = 'btn btn-accent';
+  saveBtn.onclick = async () => {
+    const text = textInp.value.trim();
+    const patch = {};
+    if (text) {
+      patch.floating_text = text;
+      patch.floating_color = colorInp.value;
+      patch.floating_bob = bobChk.checked;
+      const ox = parseInt(oxInp.value) || 0;
+      const oy = parseInt(oyInp.value) || 0;
+      if (ox) patch.floating_ox = ox;
+      if (oy) patch.floating_oy = oy;
+    } else {
+      patch.floating_text = null;
+    }
+    try {
+      const res = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json', ...(CONFIG.apiKey ? { Authorization: `Bearer ${CONFIG.apiKey}` } : {}) },
+        body: JSON.stringify(patch),
+      });
+      if (res.ok) {
+        if (text) {
+          asset.floating_text = text; asset.floating_color = colorInp.value;
+          asset.floating_bob = bobChk.checked;
+          asset.floating_ox = parseInt(oxInp.value) || 0;
+          asset.floating_oy = parseInt(oyInp.value) || 0;
+        } else {
+          delete asset.floating_text; delete asset.floating_color;
+          delete asset.floating_bob; delete asset.floating_ox; delete asset.floating_oy;
+        }
+        val.textContent = asset.floating_text || '—';
+        saveBtn.textContent = '✓ Saved'; setTimeout(() => saveBtn.textContent = 'Save', 2000);
+      }
+    } catch {}
+  };
+
+  editPanel.appendChild(textInp); editPanel.appendChild(colorRow);
+  editPanel.appendChild(bobLabel); editPanel.appendChild(offsetRow); editPanel.appendChild(saveBtn);
+
+  editBtn.onclick = () => {
+    const show = editPanel.style.display === 'none';
+    editPanel.style.display = show ? 'flex' : 'none';
+    editBtn.textContent = show ? 'Cancel' : 'Edit Display Text';
+  };
+
+  box.appendChild(editBtn); box.appendChild(editPanel);
+}
+
+function showKnowledge(asset) {
+  const title = '📖 ' + (asset.name || asset.station || 'Knowledge');
+  showModal(title, '', true, null, null, null, async (box) => {
+    const contentEl = box.querySelector('.modal-content');
+    if (contentEl) contentEl.remove();
+
+    let state = { text: '', prompt: '', vars: {} };
+    try { if (asset.content?.data) state = { vars: {}, ...JSON.parse(asset.content.data) }; } catch {}
+
+    const isAuthed = !!CONFIG.apiKey;
+
+    function detectVars(text) {
+      const matches = [...(text || '').matchAll(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g)];
+      return [...new Set(matches.map(m => m[1]))].sort();
+    }
+
+    function applyVars(text, vars) {
+      return (text || '').replace(/\{\{([a-zA-Z][a-zA-Z0-9_]*)\}\}/g, (_, n) => vars[n] || `{{${n}}}`);
+    }
+
+    function resolvedPrompt() {
+      return applyVars(state.prompt, state.vars);
+    }
+
+    // --- Display panel ---
+    const displayPanel = document.createElement('div');
+    displayPanel.className = 'section-mb';
+
+    function makeRow(label, value) {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;gap:8px;margin-bottom:3px;font-size:12px;';
+      const l = document.createElement('span');
+      l.className = 'text-muted';
+      l.style.flexShrink = '0';
+      l.textContent = label + ':';
+      const v = document.createElement('span');
+      v.textContent = value;
+      row.appendChild(l); row.appendChild(v);
+      return row;
+    }
+
+    // Info section
+    const descRow = makeRow('Description', state.text || '—');
+    displayPanel.appendChild(descRow);
+
+    const varSummaryEl = document.createElement('div');
+    function refreshVarSummary() {
+      varSummaryEl.innerHTML = '';
+      const keys = [...new Set([...detectVars(state.prompt), ...Object.keys(state.vars || {})])].sort();
+      for (const k of keys) {
+        varSummaryEl.appendChild(makeRow(k, state.vars[k] || '—'));
+      }
+    }
+    refreshVarSummary();
+    displayPanel.appendChild(varSummaryEl);
+
+    // Prompt to copy
+    const copyRow = document.createElement('div');
+    copyRow.className = 'settings-row';
+    copyRow.style.marginTop = '10px';
+    const promptCode = document.createElement('code');
+    promptCode.className = 'text-info';
+    promptCode.style.cssText = 'flex:1;word-break:break-word;font-size:11px;';
+    promptCode.textContent = resolvedPrompt() || '(no prompt set)';
+    const copyBtn = document.createElement('button');
+    copyBtn.textContent = 'Copy';
+    copyBtn.className = 'btn btn-accent';
+    copyBtn.onclick = () => {
+      navigator.clipboard.writeText(resolvedPrompt() || '').then(() => {
+        copyBtn.textContent = '✓ Copied';
+        setTimeout(() => copyBtn.textContent = 'Copy', 2000);
+      });
+    };
+    copyRow.appendChild(promptCode);
+    copyRow.appendChild(copyBtn);
+    displayPanel.appendChild(copyRow);
+    box.appendChild(displayPanel);
+
+    if (!isAuthed) return;
+
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'Edit';
+    editBtn.className = 'btn btn-ghost';
+    editBtn.style.cssText = 'margin-top:6px;font-size:11px;padding:2px 8px;opacity:0.6;';
+    displayPanel.appendChild(editBtn);
+
+    // --- Edit panel ---
+    const editPanel = document.createElement('div');
+    editPanel.style.display = 'none';
+
+    const descLabel = document.createElement('div');
+    descLabel.className = 'text-muted';
+    descLabel.style.cssText = 'font-size:11px;margin-bottom:3px;';
+    descLabel.textContent = 'Description';
+    const descTa = document.createElement('textarea');
+    descTa.value = state.text;
+    descTa.rows = 2;
+    descTa.className = 'form-textarea';
+    editPanel.appendChild(descLabel);
+    editPanel.appendChild(descTa);
+
+    const ptLabel = document.createElement('div');
+    ptLabel.className = 'text-muted';
+    ptLabel.style.cssText = 'font-size:11px;margin-top:8px;margin-bottom:3px;';
+    ptLabel.textContent = 'Agent prompt (use {{var1}}, {{name}}, … as placeholders)';
+    const promptTa = document.createElement('textarea');
+    promptTa.value = state.prompt;
+    promptTa.rows = 6;
+    promptTa.className = 'form-textarea';
+    promptTa.style.fontFamily = 'monospace';
+    editPanel.appendChild(ptLabel);
+    editPanel.appendChild(promptTa);
+
+    // Variables section
+    const varsHeader = document.createElement('div');
+    varsHeader.style.cssText = 'display:flex;align-items:center;gap:8px;margin-top:10px;margin-bottom:4px;';
+    const varsLabel = document.createElement('span');
+    varsLabel.className = 'text-muted';
+    varsLabel.style.cssText = 'font-size:11px;flex:1;';
+    varsLabel.textContent = 'Variables — reference as {{name}} in the prompt above';
+    const addVarBtn = document.createElement('button');
+    addVarBtn.textContent = '+ Add variable';
+    addVarBtn.className = 'btn btn-ghost';
+    addVarBtn.style.cssText = 'font-size:10px;padding:2px 6px;';
+    varsHeader.appendChild(varsLabel);
+    varsHeader.appendChild(addVarBtn);
+    editPanel.appendChild(varsHeader);
+
+    const varsContainer = document.createElement('div');
+    varsContainer.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+    editPanel.appendChild(varsContainer);
+
+    function makeVarRow(name, value) {
+      const row = document.createElement('div');
+      row.dataset.varRow = '1';
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+      const nameInp = document.createElement('input');
+      nameInp.type = 'text';
+      nameInp.className = 'form-input-sm var-name';
+      nameInp.style.cssText = 'width:90px;flex-shrink:0;font-family:monospace;font-size:11px;';
+      nameInp.placeholder = 'name';
+      nameInp.value = name;
+      nameInp.dataset.lastName = name;
+
+      const eq = document.createElement('span');
+      eq.className = 'text-muted';
+      eq.style.cssText = 'font-size:11px;flex-shrink:0;';
+      eq.textContent = '=';
+
+      const valInp = document.createElement('input');
+      valInp.type = 'text';
+      valInp.className = 'form-input-sm var-value';
+      valInp.style.flex = '1';
+      valInp.placeholder = 'value';
+      valInp.value = value;
+
+      const removeBtn = document.createElement('button');
+      removeBtn.textContent = '×';
+      removeBtn.className = 'btn btn-ghost';
+      removeBtn.style.cssText = 'padding:1px 5px;font-size:13px;flex-shrink:0;';
+      removeBtn.onclick = () => row.remove();
+
+      nameInp.addEventListener('change', () => {
+        const oldName = nameInp.dataset.lastName;
+        const newName = nameInp.value.trim();
+        if (oldName && newName && oldName !== newName) {
+          promptTa.value = promptTa.value.replace(
+            new RegExp(`\\{\\{${oldName}\\}\\}`, 'g'), `{{${newName}}}`
+          );
+        }
+        nameInp.dataset.lastName = newName;
+      });
+
+      row.appendChild(nameInp);
+      row.appendChild(eq);
+      row.appendChild(valInp);
+      row.appendChild(removeBtn);
+      return row;
+    }
+
+    function existingVarNames() {
+      return new Set([...varsContainer.querySelectorAll('.var-name')].map(n => n.value.trim()));
+    }
+
+    function refreshVarInputs() {
+      for (const k of detectVars(promptTa.value)) {
+        if (!existingVarNames().has(k)) varsContainer.appendChild(makeVarRow(k, state.vars[k] || ''));
+      }
+    }
+
+    addVarBtn.onclick = () => {
+      const existing = existingVarNames();
+      let n = 1;
+      while (existing.has('var' + n)) n++;
+      const row = makeVarRow('var' + n, '');
+      varsContainer.appendChild(row);
+      row.querySelector('.var-name').focus();
+    };
+
+    for (const [k, v] of Object.entries(state.vars || {})) varsContainer.appendChild(makeVarRow(k, v));
+    refreshVarInputs();
+    promptTa.addEventListener('input', refreshVarInputs);
+
+    const saveBtn = document.createElement('button');
+    saveBtn.textContent = 'Save';
+    saveBtn.className = 'btn btn-primary';
+    saveBtn.style.marginTop = '8px';
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'Cancel';
+    cancelBtn.className = 'btn btn-ghost';
+    cancelBtn.style.cssText = 'margin-top:8px;margin-left:6px;';
+    editPanel.appendChild(document.createElement('br'));
+    editPanel.appendChild(saveBtn);
+    editPanel.appendChild(cancelBtn);
+
+    editBtn.onclick = () => { displayPanel.style.display = 'none'; editPanel.style.display = ''; descTa.focus(); };
+    cancelBtn.onclick = () => { displayPanel.style.display = ''; editPanel.style.display = 'none'; };
+    saveBtn.onclick = async () => {
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving...';
+      state.text = descTa.value.trim();
+      state.prompt = promptTa.value.trim();
+      state.vars = {};
+      for (const row of varsContainer.querySelectorAll('[data-var-row]')) {
+        const name = row.querySelector('.var-name').value.trim();
+        const value = row.querySelector('.var-value').value.trim();
+        if (name) state.vars[name] = value;
+      }
+      try {
+        const res = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+          body: JSON.stringify({ content: { type: 'knowledge', data: JSON.stringify(state) } }),
+        });
+        if (res.ok) {
+          asset.content = { type: 'knowledge', data: JSON.stringify(state) };
+          descRow.querySelector('span:last-child').textContent = state.text || '—';
+          promptCode.textContent = resolvedPrompt() || '(no prompt set)';
+          refreshVarSummary();
+          displayPanel.style.display = '';
+          editPanel.style.display = 'none';
+        } else { saveBtn.textContent = 'Failed'; }
+      } catch { saveBtn.textContent = 'Failed'; }
+      saveBtn.disabled = false;
+      saveBtn.textContent = 'Save';
+    };
+
+    box.appendChild(editPanel);
+    appendFloatingTextUI(box, asset);
+  });
+}
+
+function showDownloads(asset) {
+  const title = '📦 ' + (asset.name || asset.station || asset.download_folder || 'Downloads');
+  showModal(title, 'Loading...', true, null, null, null, async (box) => {
+    const contentEl = box.querySelector('.modal-content');
+
+    if (contentEl) contentEl.remove();
+
+    const folderRow = document.createElement('div');
+    folderRow.className = 'settings-row';
+    folderRow.style.marginBottom = '10px';
+
+    const folderLabel = document.createElement('span');
+    folderLabel.className = 'text-label';
+    folderLabel.textContent = 'Folder:';
+
+    const folderVal = document.createElement('span');
+    folderVal.className = 'text-muted';
+    folderVal.style.fontFamily = 'monospace';
+    folderVal.textContent = asset.download_folder;
+
+    folderRow.appendChild(folderLabel);
+    folderRow.appendChild(folderVal);
+
+    if (CONFIG.apiKey) {
+      const editBtn = document.createElement('button');
+      editBtn.textContent = 'Edit';
+      editBtn.className = 'btn btn-accent';
+      editBtn.style.cssText = 'margin-left:auto;font-size:11px;padding:2px 8px;';
+
+      const editPanel = document.createElement('div');
+      editPanel.style.cssText = 'display:none;margin-top:8px;';
+      const input = document.createElement('input');
+      input.type = 'text';
+      input.value = asset.download_folder;
+      input.className = 'form-input-sm';
+      input.style.cssText = 'width:100%;font-family:monospace;margin-bottom:6px;';
+      const btnRow = document.createElement('div');
+      btnRow.style.cssText = 'display:flex;gap:6px;';
+      const saveBtn = document.createElement('button');
+      saveBtn.textContent = 'Save';
+      saveBtn.className = 'btn btn-accent';
+      const cancelBtn = document.createElement('button');
+      cancelBtn.textContent = 'Cancel';
+      cancelBtn.className = 'btn';
+      btnRow.appendChild(saveBtn);
+      btnRow.appendChild(cancelBtn);
+      editPanel.appendChild(input);
+      editPanel.appendChild(btnRow);
+
+      editBtn.onclick = () => { editPanel.style.display = ''; editBtn.style.display = 'none'; };
+      cancelBtn.onclick = () => { editPanel.style.display = 'none'; editBtn.style.display = ''; };
+      saveBtn.onclick = async () => {
+        const newFolder = input.value.trim();
+        if (!newFolder || !/^[a-zA-Z0-9_-]+$/.test(newFolder)) {
+          saveBtn.textContent = 'Invalid name';
+          setTimeout(() => saveBtn.textContent = 'Save', 2000);
+          return;
+        }
+        saveBtn.disabled = true;
+        try {
+          const r = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+            body: JSON.stringify({ download_folder: newFolder }),
+          });
+          if (r.ok) {
+            asset.download_folder = newFolder;
+            folderVal.textContent = newFolder;
+            editPanel.style.display = 'none';
+            editBtn.style.display = '';
+            loadFiles();
+          } else { saveBtn.textContent = 'Failed'; }
+        } catch { saveBtn.textContent = 'Failed'; }
+        saveBtn.disabled = false;
+        saveBtn.textContent = 'Save';
+      };
+
+      folderRow.appendChild(editBtn);
+      box.appendChild(folderRow);
+      box.appendChild(editPanel);
+    } else {
+      box.appendChild(folderRow);
+    }
+
+    const listContainer = document.createElement('div');
+    box.appendChild(listContainer);
+
+    async function loadFiles() {
+      listContainer.innerHTML = '';
+      try {
+        const res = await fetch(`${HUB_HTTP_URL}/api/downloads/${encodeURIComponent(asset.download_folder)}`);
+        if (!res.ok) { listContainer.textContent = 'Folder not found.'; return; }
+        const { files } = await res.json();
+
+        if (!files || files.length === 0) {
+          const empty = document.createElement('div');
+          empty.style.cssText = 'color:#aaa;font-size:13px;padding:8px 0;';
+          empty.textContent = 'No files available for download.';
+          listContainer.appendChild(empty);
+          return;
+        }
+
+        const list = document.createElement('div');
+        list.style.cssText = 'display:flex;flex-direction:column;gap:6px;';
+        for (const file of files) {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:8px 12px;background:rgba(0,0,0,0.2);gap:12px;';
+          const nameEl = document.createElement('span');
+          nameEl.style.cssText = 'font-size:13px;color:#e0d8c0;word-break:break-all;';
+          nameEl.textContent = file.name;
+          const right = document.createElement('div');
+          right.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0;';
+          if (file.size != null) {
+            const sizeEl = document.createElement('span');
+            sizeEl.style.cssText = 'font-size:11px;color:#888;';
+            sizeEl.textContent = file.size < 1024 ? `${file.size} B`
+              : file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KB`
+              : `${(file.size / (1024 * 1024)).toFixed(1)} MB`;
+            right.appendChild(sizeEl);
+          }
+          const a = document.createElement('a');
+          a.href = `${HUB_HTTP_URL}/api/downloads/${encodeURIComponent(asset.download_folder)}/${encodeURIComponent(file.name)}`;
+          a.download = file.name;
+          a.textContent = '⬇ Download';
+          a.className = 'btn btn-accent';
+          a.style.cssText = 'text-decoration:none;font-size:12px;padding:4px 10px;';
+          right.appendChild(a);
+          row.appendChild(nameEl);
+          row.appendChild(right);
+          list.appendChild(row);
+        }
+        listContainer.appendChild(list);
+      } catch { listContainer.textContent = 'Failed to load downloads.'; }
+    }
+
+    loadFiles();
+  });
+}
+
+function buildSeatFilter(asset, container) {
+  if (!asset?.id || !asset.station) return;
+  const isAuthed = !!CONFIG.apiKey;
+  const filter = asset.seat_filter || [];
+
+  // Display row
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:8px;font-size:12px;align-items:baseline;flex-wrap:wrap;margin-top:4px;';
+  const label = document.createElement('span');
+  label.className = 'text-muted'; label.textContent = 'Allowed agents:';
+  const val = document.createElement('span');
+  val.textContent = filter.length ? filter.join(', ') : 'everyone';
+  row.appendChild(label); row.appendChild(val);
+  container.appendChild(row);
+
+  if (!isAuthed) return;
+
+  const editBtn = document.createElement('button');
+  editBtn.textContent = 'Edit'; editBtn.className = 'btn btn-ghost';
+  editBtn.style.cssText = 'font-size:10px;padding:2px 8px;margin-left:4px;';
+
+  const editPanel = document.createElement('div');
+  editPanel.style.cssText = 'display:none;flex-direction:column;gap:6px;margin-top:4px;';
+
+  // Collect unique agent names from current + historical agents on this property
+  const selected = new Set(filter);
+  const knownNames = new Set();
+  for (const [, data] of agents) { if (data.agent_name) knownNames.add(data.agent_name); }
+  for (const n of filter) knownNames.add(n);
+
+  const chipsWrap = document.createElement('div');
+  chipsWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px;';
+
+  function renderChips() {
+    chipsWrap.innerHTML = '';
+    for (const name of [...knownNames].sort()) {
+      const chip = document.createElement('button');
+      const active = selected.has(name);
+      chip.textContent = name;
+      chip.className = 'btn';
+      chip.style.cssText = `font-size:11px;padding:2px 8px;border-radius:12px;${active ? 'background:#5a8fff;color:#fff;border-color:#5a8fff;' : 'background:transparent;color:#aaa;border:1px solid #555;'}`;
+      chip.onclick = () => {
+        if (selected.has(name)) selected.delete(name); else selected.add(name);
+        renderChips();
+      };
+      chipsWrap.appendChild(chip);
+    }
+    if (!knownNames.size) {
+      const empty = document.createElement('span');
+      empty.className = 'text-muted'; empty.style.fontSize = '11px';
+      empty.textContent = 'No agents connected';
+      chipsWrap.appendChild(empty);
+    }
+  }
+  renderChips();
+
+  const saveBtn = document.createElement('button'); saveBtn.textContent = 'Save';
+  saveBtn.className = 'btn btn-accent';
+  saveBtn.onclick = async () => {
+    const names = [...selected];
+    try {
+      const res = await fetch(`${HUB_HTTP_URL}/api/assets/${encodeURIComponent(asset.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CONFIG.apiKey}` },
+        body: JSON.stringify({ seat_filter: names.length ? names : null }),
+      });
+      if (res.ok) {
+        if (names.length) asset.seat_filter = names; else delete asset.seat_filter;
+        val.textContent = names.length ? names.join(', ') : 'everyone';
+        saveBtn.textContent = '✓ Saved'; setTimeout(() => saveBtn.textContent = 'Save', 2000);
+      }
+    } catch {}
+  };
+
+  editPanel.appendChild(chipsWrap);
+  editPanel.appendChild(saveBtn);
+
+  editBtn.onclick = () => {
+    const show = editPanel.style.display === 'none';
+    editPanel.style.display = show ? 'flex' : 'none';
+    editBtn.textContent = show ? 'Cancel' : 'Edit';
+  };
+  row.appendChild(editBtn);
+  container.appendChild(editPanel);
 }
 
 function showModal(title, content, scrollable = false, setupInstructions = null, editableInterval = null, signalAsset = null, onReady = null, fireBtn = null) {
